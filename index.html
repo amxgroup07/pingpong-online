@@ -1,0 +1,1539 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#07020a">
+<title>Ping Pong Online</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #07020a; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; }
+  #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: none; }
+  .hidden { display: none !important; }
+
+  /* ---------- HUD estilo transmissão ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  #board { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 34px rgba(0,0,0,.55); font-weight: 800; }
+  .team { display: flex; align-items: center; gap: 10px; height: 48px; background: rgba(10,5,9,.8); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .team.me { padding-left: 14px; border-left: 4px solid #9a5cff; }
+  .team.op { padding-right: 14px; border-right: 4px solid #ff3355; }
+  .team .nm { font-size: 13px; letter-spacing: .16em; }
+  .team .pts { font-size: 30px; min-width: 52px; height: 100%; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.07); font-variant-numeric: tabular-nums; }
+  .team.me .pts { background: linear-gradient(180deg, rgba(154,92,255,.35), rgba(154,92,255,.12)); }
+  .team.op .pts { background: linear-gradient(180deg, rgba(255,51,85,.35), rgba(255,51,85,.12)); }
+  .srv { width: 9px; height: 9px; border-radius: 50%; background: #ffd34d; box-shadow: 0 0 10px #ffd34d; opacity: 0; transition: opacity .3s; }
+  .srv.on { opacity: 1; }
+  .pts.bump { animation: bump .5s ease-out; }
+  @keyframes bump { 0% { transform: scale(1); } 35% { transform: scale(1.4); color: #ffd34d; } 100% { transform: scale(1); } }
+  #tag { position: absolute; top: 68px; left: 50%; transform: translateX(-50%); padding: 4px 12px; border-radius: 999px; background: #ff2a55; font-size: 11px; font-weight: 900; letter-spacing: .18em; box-shadow: 0 0 18px rgba(255,42,85,.7); opacity: 0; transition: opacity .3s; }
+  #tag.show { opacity: 1; animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 4px rgba(255,42,85,.4); } }
+  #label { position: absolute; top: 96px; left: 50%; transform: translateX(-50%) scale(.9); padding: 6px 18px; background: rgba(0,0,0,.6); border-radius: 6px; font-weight: 900; letter-spacing: .1em; font-size: 15px; font-style: italic; opacity: 0; transition: opacity .2s, transform .2s; border-bottom: 2px solid var(--c, #22ff88); }
+  #label.show { opacity: 1; transform: translateX(-50%) scale(1); }
+  #msg { position: absolute; top: 36%; left: 50%; transform: translate(-50%, -50%); text-align: center; font-size: 40px; font-weight: 900; font-style: italic; letter-spacing: .02em; text-shadow: 0 4px 24px rgba(0,0,0,.8), 0 0 30px rgba(255,80,140,.35); opacity: 0; white-space: nowrap; pointer-events: none; }
+  #msg small { display: block; font-size: 16px; font-weight: 700; font-style: normal; opacity: .85; margin-top: 6px; letter-spacing: .05em; }
+  #msg.show { animation: pop 1.6s ease-out forwards; }
+  @keyframes pop { 0% { opacity: 0; transform: translate(-50%, -50%) scale(1.6); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -60%) scale(1); } }
+  #streak { position: absolute; right: 18px; bottom: 60px; text-align: center; opacity: 0; transition: opacity .3s; }
+  #streak.show { opacity: 1; }
+  #streak .fire { font-size: 34px; filter: drop-shadow(0 0 10px rgba(255,140,0,.9)); transition: transform .15s; }
+  #streak .n { font-size: 28px; font-weight: 900; line-height: 1; }
+  #streak .t { font-size: 10px; letter-spacing: .2em; opacity: .75; font-weight: 700; }
+  #ping { position: absolute; bottom: 12px; left: 14px; font-size: 12px; opacity: .55; }
+  #toast { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.7); padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .3s; }
+  #toast.show { opacity: 1; }
+  .hbtns { position: absolute; bottom: 10px; right: 12px; display: flex; gap: 6px; pointer-events: auto; }
+  .hbtns button { background: rgba(0,0,0,.5); color: #fff; border: 1px solid rgba(255,255,255,.22); border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer; }
+
+  /* ---------- Telas ---------- */
+  .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(90,8,40,.35), rgba(5,1,4,.85)); padding: 16px; overflow-y: auto; }
+  .card { width: 100%; max-width: 420px; background: rgba(16,6,12,.82); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,.09); border-radius: 20px; padding: 26px 22px; box-shadow: 0 24px 70px rgba(0,0,0,.6); text-align: center; }
+  h1 { font-size: 32px; font-weight: 900; font-style: italic; letter-spacing: .03em; line-height: 1; }
+  h1 span { display: block; font-size: 14px; font-style: normal; letter-spacing: .55em; color: #ff4f8b; margin-top: 8px; text-shadow: 0 0 14px rgba(255,79,139,.6); }
+  h2 { font-size: 32px; font-weight: 900; margin-bottom: 6px; }
+  .ball-ico { width: 48px; height: 48px; border-radius: 50%; margin: 0 auto 14px; background: radial-gradient(circle at 35% 30%, #fff, #ffe2c2 55%, #e9964c); box-shadow: 0 0 30px rgba(255,170,90,.55); animation: bob 1.6s ease-in-out infinite; }
+  @keyframes bob { 50% { transform: translateY(-8px); } }
+  .stack { display: flex; flex-direction: column; gap: 10px; margin-top: 22px; }
+  button.btn, a.btn { display: block; width: 100%; border: 0; border-radius: 12px; padding: 14px; font-size: 16px; font-weight: 800; cursor: pointer; color: #fff; background: linear-gradient(180deg, #ff3d7f, #d81b5c); text-decoration: none; box-shadow: 0 6px 20px rgba(255,40,100,.3); }
+  button.btn:active { transform: translateY(1px); }
+  .btn.ghost { background: rgba(255,255,255,.08); box-shadow: none; }
+  .btn.green { background: linear-gradient(180deg, #2fd16b, #1ea653); box-shadow: 0 6px 20px rgba(40,200,100,.25); }
+  .row { display: flex; gap: 8px; }
+  .row input { flex: 1; min-width: 0; }
+  .row .btn { width: auto; padding: 14px 18px; }
+  input { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.15); border-radius: 12px; padding: 13px 14px; color: #fff; font-size: 16px; font-weight: 700; letter-spacing: .15em; text-transform: uppercase; outline: none; text-align: center; }
+  input:focus { border-color: #ff4f8b; }
+  .divider { font-size: 12px; opacity: .45; margin: 4px 0; }
+  .code { font-size: 44px; font-weight: 900; letter-spacing: .2em; margin: 8px 0 4px; color: #ffd34d; text-shadow: 0 0 20px rgba(255,211,77,.4); }
+  .muted { opacity: .65; font-size: 14px; }
+  .link { width: 100%; font-size: 12px; letter-spacing: 0; text-transform: none; font-weight: 500; margin: 8px 0; }
+  #lobbyMsg { margin-top: 14px; font-size: 14px; color: #ffb3c9; min-height: 18px; }
+  .howto { margin-top: 18px; font-size: 13px; line-height: 1.5; opacity: .72; text-align: left; background: rgba(255,255,255,.04); border-radius: 10px; padding: 12px 14px; }
+  .howto b { color: #ffd34d; }
+  .spinner { width: 22px; height: 22px; border: 3px solid rgba(255,255,255,.2); border-top-color: #ff4f8b; border-radius: 50%; animation: spin .9s linear infinite; display: inline-block; vertical-align: middle; margin-right: 8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #07020a; font-size: 14px; letter-spacing: .2em; opacity: .8; }
+</style>
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="loading">CARREGANDO ARENA…</div>
+
+<div id="hud" class="hidden">
+  <div id="board">
+    <div class="team me"><span class="srv" id="srvL"></span><span class="nm" id="nameL">VOCÊ</span><span class="pts" id="scoreL">0</span></div>
+    <div class="team op"><span class="pts" id="scoreR">0</span><span class="nm" id="nameR">AMIGO</span><span class="srv" id="srvR"></span></div>
+  </div>
+  <div id="tag">MATCH POINT</div>
+  <div id="label"></div>
+  <div id="msg"></div>
+  <div id="streak"><div class="fire">🔥</div><div class="n" id="streakN">0</div><div class="t">SEQUÊNCIA</div></div>
+  <div id="toast"></div>
+  <div id="ping"></div>
+  <div class="hbtns">
+    <button id="btnSound" title="Som">🔊</button>
+    <button id="btnQuality" title="Qualidade gráfica">HD</button>
+    <button id="quit">Sair</button>
+  </div>
+</div>
+
+<div id="lobby" class="screen hidden">
+  <div class="card">
+    <div class="ball-ico"></div>
+    <h1>PING PONG<span>ONLINE</span></h1>
+
+    <div id="menu" class="stack">
+      <button class="btn" id="btnCreate">Criar sala e chamar um amigo</button>
+      <div class="divider">— ou entre com o código da sala —</div>
+      <div class="row">
+        <input id="inCode" placeholder="CÓDIGO" maxlength="6" autocomplete="off" spellcheck="false">
+        <button class="btn" id="btnJoin">Entrar</button>
+      </div>
+      <button class="btn ghost" id="btnSolo">Treinar contra o computador</button>
+    </div>
+
+    <div id="wait" class="stack hidden">
+      <p class="muted">Código da sala</p>
+      <div class="code" id="codeTxt">-----</div>
+      <input class="link" id="linkTxt" readonly>
+      <button class="btn" id="btnCopy">Copiar link</button>
+      <a class="btn green" id="btnWa" target="_blank" rel="noopener">Mandar no WhatsApp</a>
+      <p class="muted"><span class="spinner"></span>Esperando seu amigo entrar…</p>
+      <button class="btn ghost" id="btnCancel">Cancelar</button>
+    </div>
+
+    <div id="joining" class="stack hidden">
+      <p><span class="spinner"></span><span id="joinTxt">Conectando…</span></p>
+      <button class="btn ghost" id="btnCancel2">Cancelar</button>
+    </div>
+
+    <p id="lobbyMsg"></p>
+
+    <div class="howto">
+      <b>Como jogar:</b> mova o mouse (ou o dedo) para posicionar a raquete. Quando a bola chegar, faça um
+      <b>movimento rápido para cima</b> — quanto mais rápido, mais forte a batida (rápido demais = bola fora).
+      Arrastar para o lado na hora da batida <b>direciona</b> a bola e dá efeito. Parado = bloqueio.<br>
+      <b>Saque:</b> deixe a raquete atrás da bola e faça o movimento para cima.
+    </div>
+  </div>
+</div>
+
+<div id="over" class="screen hidden">
+  <div class="card">
+    <h2 id="overTitle">Você venceu!</h2>
+    <p class="muted" id="overScore">11 × 7</p>
+    <div class="stack">
+      <button class="btn" id="btnRematch">Revanche</button>
+      <button class="btn ghost" id="btnMenu">Voltar ao menu</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+/* =====================================================================
+   CONSTANTES (metros / segundos) — medidas oficiais da mesa
+   ===================================================================== */
+const TL = 2.74, TW = 1.525, TH = 0.76, NET_H = 0.1525, R = 0.02;
+const HL = TL / 2, HW = TW / 2;
+const NET_HALF = HW + 0.1525;
+const BALL_Y = TH + R;
+const NET_TOP = TH + NET_H;
+const G = 9.81;
+const KD = 0.045;               // arrasto do ar
+const KM = 0.0032;              // efeito Magnus (spin)
+const DT = 1 / 240;             // passo fixo da física
+const TIME_SCALE = 0.72;        // câmera lenta leve p/ ficar jogável
+const POWER_DIV = 2.1;          // velocidade do gesto (alturas de tela/s) -> força
+const POINT_TO_WIN = 11;
+const PEER_PREFIX = 'ppol-v1-';
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const $ = id => document.getElementById(id);
+const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { } } };
+
+/* =====================================================================
+   FÍSICA DA BOLA — determinística: os dois jogadores simulam igual
+   ===================================================================== */
+function stepBall(b, dt, events, collide) {
+  const p = b.p, v = b.v, w = b.w;
+  const sp = Math.hypot(v[0], v[1], v[2]);
+  v[0] += (-KD * sp * v[0] + KM * (w[1] * v[2] - w[2] * v[1])) * dt;
+  v[1] += (-G - KD * sp * v[1] + KM * (w[2] * v[0] - w[0] * v[2])) * dt;
+  v[2] += (-KD * sp * v[2] + KM * (w[0] * v[1] - w[1] * v[0])) * dt;
+  const px = p[0], py = p[1], pz = p[2];
+  p[0] += v[0] * dt; p[1] += v[1] * dt; p[2] += v[2] * dt;
+  if (!collide) return;
+
+  if ((pz > 0) !== (p[2] > 0)) {                       // rede
+    const f = pz / (pz - p[2]);
+    const yc = py + (p[1] - py) * f, xc = px + (p[0] - px) * f;
+    if (Math.abs(xc) < NET_HALF && yc < NET_TOP + R && yc > TH - 0.02) {
+      p[2] = Math.sign(pz || 1) * (R + 0.002);
+      v[2] = -v[2] * 0.12; v[0] *= 0.5; v[1] *= 0.3;
+      w[0] *= 0.3; w[1] *= 0.3; w[2] *= 0.3;
+      events && events.push({ t: 'net', x: xc, y: yc });
+    }
+  }
+  if (v[1] < 0 && py >= BALL_Y && p[1] < BALL_Y && Math.abs(p[0]) <= HW + R * 0.5 && Math.abs(p[2]) <= HL + R * 0.5) {
+    p[1] = BALL_Y + (BALL_Y - p[1]);                   // mesa
+    v[1] = -v[1] * 0.9;
+    v[0] = v[0] * 0.98 + 0.18 * (-w[2] * R);
+    v[2] = v[2] * 0.98 + 0.18 * (w[0] * R);
+    w[0] *= 0.6; w[1] *= 0.6; w[2] *= 0.6;
+    events && events.push({ t: 'table', x: p[0], z: p[2] });
+  }
+  if (p[1] < R) {                                      // chão
+    p[1] = R;
+    if (v[1] < 0) { v[1] = -v[1] * 0.55; v[0] *= 0.8; v[2] *= 0.8; events && events.push({ t: 'floor', x: p[0], z: p[2], s: -v[1] }); }
+  }
+}
+
+function simFlight(p0, v0, w0) {
+  const b = { p: [...p0], v: [...v0], w: [...w0] };
+  let t = 0, netY = null;
+  for (let i = 0; i < 1400; i++) {
+    const px = b.p[0], py = b.p[1], pz = b.p[2];
+    stepBall(b, DT, null, false); t += DT;
+    if (netY === null && (pz > 0) !== (b.p[2] > 0)) { const f = pz / (pz - b.p[2]); netY = py + (b.p[1] - py) * f; }
+    if (b.v[1] < 0 && py > BALL_Y && b.p[1] <= BALL_Y) {
+      const f = (py - BALL_Y) / (py - b.p[1]);
+      return { x: px + (b.p[0] - px) * f, z: pz + (b.p[2] - pz) * f, t, netY };
+    }
+  }
+  return null;
+}
+
+/* Intenção do jogador (força, mira, efeito) -> velocidade inicial da bola */
+function makeShot(side, B, power, tx, sideSpin, serve) {
+  const pw = Math.max(0, power);
+  let depth, sh;
+  if (serve) {
+    depth = 0.55 + 0.7 * Math.min(pw, 1) + 1.1 * Math.max(0, pw - 1.2);
+    sh = 3.0 + 2.6 * Math.min(pw, 1.2);
+  } else {
+    depth = 0.32 + 0.93 * Math.min(pw, 1) + 1.3 * Math.max(0, pw - 1.15);
+    sh = 3.0 + 6.0 * Math.min(pw, 1.25) / 1.25;
+  }
+  const T = [tx, BALL_Y, -side * depth];
+  const dx = T[0] - B[0], dz = T[2] - B[2];
+  const dist = Math.hypot(dx, dz) || 1;
+  const dirx = dx / dist, dirz = dz / dist;
+  let top = serve ? 25 : (pw < 0.15 ? -35 : 40 + 100 * Math.min(pw, 1.2));
+  if (top > 0) top *= clamp((B[1] - TH + 0.3) / 0.4, 0.25, 1);
+  const w = [top * dirz, sideSpin, -top * dirx];
+
+  let tf = dist / sh, v = null;
+  const netReq = NET_TOP + R + 0.035;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    for (let i = 0; i < 50; i++) {
+      const vy = (BALL_Y - B[1]) / tf + 0.5 * G * tf;
+      const tn = -B[2] * tf / dz;
+      const yn = B[1] + vy * tn - 0.5 * G * tn * tn;
+      if (yn >= netReq) break;
+      tf *= 1.05;
+    }
+    v = [dx / tf, (BALL_Y - B[1]) / tf + 0.5 * G * tf, dz / tf];
+    let land = null;
+    for (let it = 0; it < 8; it++) {
+      land = simFlight(B, v, w);
+      if (!land) break;
+      const ex = T[0] - land.x, ez = T[2] - land.z;
+      if (Math.abs(ex) < 0.004 && Math.abs(ez) < 0.004) break;
+      v[0] += ex / land.t; v[2] += ez / land.t;
+    }
+    if (!land || (land.netY !== null && land.netY < NET_TOP + R + 0.012)) { tf *= 1.08; continue; }
+    break;
+  }
+  let label = 'TOP-SPIN';
+  if (serve) label = 'SAQUE';
+  else if (pw < 0.15) label = 'BLOQUEIO';
+  else if (pw >= 0.95) label = 'SMASH!';
+  else if (Math.abs(sideSpin) > 22) label = 'SIDE-SPIN';
+  return { v, w, label };
+}
+
+/* =====================================================================
+   RENDERER + PÓS-PROCESSAMENTO
+   ===================================================================== */
+const canvas = $('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.6;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const coarse = matchMedia('(pointer: coarse)').matches;
+const Q = { level: store.get('pp_q', (coarse || (navigator.hardwareConcurrency || 8) <= 4) ? 'leve' : 'alto') };
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x07020a);
+scene.fog = new THREE.Fog(0x07020a, 11, 30);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 80);
+{
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+  pmrem.dispose();
+}
+
+const VignetteShader = {
+  uniforms: { tDiffuse: { value: null }, amount: { value: 0.5 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float amount; varying vec2 vUv;
+    void main(){ vec4 c = texture2D(tDiffuse, vUv); float d = distance(vUv, vec2(0.5));
+      c.rgb *= mix(1.0, smoothstep(0.85, 0.25, d), amount); gl_FragColor = c; }`
+};
+
+let composer = null, bloomPass = null;
+function buildComposer() {
+  if (composer) { composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); }
+  const w = window.innerWidth, h = window.innerHeight, pr = renderer.getPixelRatio();
+  const rt = new THREE.WebGLRenderTarget(Math.floor(w * pr), Math.floor(h * pr), { type: THREE.HalfFloatType, samples: Q.level === 'alto' ? 4 : 0 });
+  composer = new EffectComposer(renderer, rt);
+  composer.setPixelRatio(pr);
+  composer.setSize(w, h);
+  composer.addPass(new RenderPass(scene, camera));
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), 0.55, 0.5, 1.0);
+  composer.addPass(bloomPass);
+  composer.addPass(new OutputPass());
+  composer.addPass(new ShaderPass(VignetteShader));
+}
+
+function canvasTex(w, h, draw) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
+}
+const dotTex = canvasTex(64, 64, (g, w, h) => {
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+
+/* =====================================================================
+   ILUMINAÇÃO DE ARENA
+   ===================================================================== */
+scene.add(new THREE.HemisphereLight(0x8090ff, 0x40101e, 0.09));
+const mainSpot = new THREE.SpotLight(0xfff4ea, 46, 14, 0.6, 0.6, 2);
+mainSpot.position.set(0, 6.2, 0.4);
+mainSpot.target.position.set(0, TH, 0);
+mainSpot.castShadow = true;
+mainSpot.shadow.bias = -0.0004;
+mainSpot.shadow.normalBias = 0.02;
+mainSpot.shadow.camera.near = 2; mainSpot.shadow.camera.far = 10;
+scene.add(mainSpot, mainSpot.target);
+const rimSpots = [];
+for (const [x, z, col] of [[-4, -5, 0xff3d8b], [4, 5, 0x3dc8ff], [4, -5, 0x9a5cff], [-4, 5, 0xff7a3d]]) {
+  const s = new THREE.SpotLight(col, 16, 16, 0.42, 0.8, 2);
+  s.position.set(x, 5.5, z); s.target.position.set(0, TH, 0);
+  scene.add(s, s.target); rimSpots.push(s);
+}
+const fill = new THREE.DirectionalLight(0xffffff, 0.17);
+fill.position.set(-2, 4, 3); scene.add(fill);
+const hitLight = new THREE.PointLight(0xffffff, 0, 2.2, 2);
+scene.add(hitLight);
+
+// Feixes de luz "volumétricos" falsos
+const beamMat = new THREE.ShaderMaterial({
+  uniforms: { color: { value: new THREE.Color(0xffe8f2) }, strength: { value: 0.11 } },
+  vertexShader: `varying float vH; varying vec3 vN; varying vec3 vV;
+    void main(){ vH = position.y; vec4 mv = modelViewMatrix * vec4(position,1.0);
+      vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `uniform vec3 color; uniform float strength; varying float vH; varying vec3 vN; varying vec3 vV;
+    void main(){ float h = clamp(vH + 0.5, 0.0, 1.0); float edge = pow(abs(dot(vN, vV)), 2.0);
+      gl_FragColor = vec4(color * strength * pow(h, 1.3) * edge, 1.0); }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+});
+function addBeam(from, to, radius, color, strength) {
+  const len = from.distanceTo(to);
+  const geo = new THREE.ConeGeometry(radius, len, 32, 1, true);
+  const m = beamMat.clone(); m.uniforms.color.value = new THREE.Color(color); m.uniforms.strength.value = strength;
+  // vH: -0.5 (base) .. 0.5 (ponta) -> normaliza pela altura
+  geo.scale(1, 1 / len, 1);
+  const mesh = new THREE.Mesh(geo, m);
+  mesh.scale.y = len;
+  mesh.position.copy(from).add(to).multiplyScalar(0.5);
+  mesh.lookAt(to); mesh.rotateX(-Math.PI / 2);
+  scene.add(mesh);
+  return mesh;
+}
+const beams = [
+  addBeam(new THREE.Vector3(0, 6.2, 0.4), new THREE.Vector3(0, 0, 0), 2.2, 0xfff0f6, 0.07),
+  addBeam(new THREE.Vector3(-4, 5.5, -5), new THREE.Vector3(-0.6, 0, -0.8), 1.3, 0xff3d8b, 0.09),
+  addBeam(new THREE.Vector3(4, 5.5, 5), new THREE.Vector3(0.6, 0, 0.8), 1.3, 0x3dc8ff, 0.09),
+  addBeam(new THREE.Vector3(4, 5.5, -5), new THREE.Vector3(0.6, 0, -0.8), 1.3, 0x9a5cff, 0.08),
+  addBeam(new THREE.Vector3(-4, 5.5, 5), new THREE.Vector3(-0.6, 0, 0.8), 1.3, 0xff7a3d, 0.08),
+];
+
+/* =====================================================================
+   ARENA: piso, placas de LED, arquibancada, torcida, telões, teto
+   ===================================================================== */
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x1a0610, roughness: 0.7, envMapIntensity: 0.2 }));
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+
+const courtTex = canvasTex(1024, 1536, (g, w, h) => {
+  const gr = g.createRadialGradient(w / 2, h / 2, 80, w / 2, h / 2, h * 0.65);
+  gr.addColorStop(0, '#c81a55'); gr.addColorStop(1, '#8a0f38');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  // textura de borracha
+  for (let i = 0; i < 26000; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,255,255'},${Math.random() * 0.05})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+  g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 8; g.strokeRect(24, 24, w - 48, h - 48);
+  g.fillStyle = 'rgba(255,255,255,.5)'; g.textAlign = 'center';
+  for (const sx of [-1, 1]) {
+    g.save(); g.translate(w / 2 + sx * 300, h / 2); g.rotate(sx * Math.PI / 2);
+    g.font = 'italic 900 52px system-ui, sans-serif'; g.fillText('PING PONG', 0, 0);
+    g.font = '700 26px system-ui, sans-serif'; g.fillText('O N L I N E', 0, 40);
+    g.restore();
+  }
+});
+const court = new THREE.Mesh(new THREE.PlaneGeometry(7.4, 11.2), new THREE.MeshStandardMaterial({ map: courtTex, roughness: 0.42, metalness: 0, envMapIntensity: 0.45 }));
+court.rotation.x = -Math.PI / 2; court.position.y = 0.003; court.receiveShadow = true; scene.add(court);
+
+// Placas de LED: 4 anúncios que trocam deslizando
+const LED_ADS = [['PING PONG ONLINE', '#ff4f8b'], ['TOP-SPIN ARENA', '#3dc8ff'], ['🏓 SMASH!', '#ffd34d'], ['JOGUE COM OS AMIGOS', '#b98cff']];
+const ledTex = canvasTex(768 * LED_ADS.length, 256, (g, w, h) => {
+  g.fillStyle = '#04030a'; g.fillRect(0, 0, w, h);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  LED_ADS.forEach(([t, c], i) => {
+    const cx = i * 768 + 384;
+    let fs = 96; g.font = `italic 900 ${fs}px system-ui, sans-serif`;
+    while (g.measureText(t).width > 680) { fs -= 4; g.font = `italic 900 ${fs}px system-ui, sans-serif`; }
+    g.fillStyle = c; g.fillText(t, cx, h / 2 + 6);
+    g.fillStyle = c; g.fillRect(i * 768 + 40, h - 34, 688, 6);
+  });
+  g.fillStyle = 'rgba(0,0,0,.4)';
+  for (let y = 0; y < h; y += 5) g.fillRect(0, y, w, 1.5);
+  for (let x = 0; x < w; x += 5) g.fillRect(x, 0, 1.5, h);
+});
+ledTex.wrapS = THREE.RepeatWrapping; ledTex.repeat.set(1 / LED_ADS.length, 1);
+const led = { idx: 0, t: 0 };
+const ledMat = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffffff, emissiveMap: ledTex, emissiveIntensity: 0.8, roughness: 0.4 });
+const boardSide = new THREE.MeshStandardMaterial({ color: 0x0c0c10, roughness: 0.5, metalness: 0.4 });
+const boardGeo = new THREE.BoxGeometry(1.8, 0.6, 0.08);
+const BX = 3.6, BZ = 5.5;
+const boardMats = [boardSide, boardSide, boardSide, boardSide, ledMat, boardSide];
+for (let x = -BX + 0.9; x <= BX - 0.9 + 0.01; x += 1.8) for (const s of [-1, 1]) {
+  const m = new THREE.Mesh(boardGeo, boardMats); m.position.set(x, 0.3, s * BZ); m.rotation.y = s > 0 ? Math.PI : 0; scene.add(m);
+}
+for (let z = -BZ + 0.9; z <= BZ - 0.9 + 0.01; z += 1.8) for (const s of [-1, 1]) {
+  const m = new THREE.Mesh(boardGeo, boardMats); m.position.set(s * BX, 0.3, z); m.rotation.y = -s * Math.PI / 2; scene.add(m);
+}
+
+// Arquibancadas + torcida (instanciada)
+const standMat = new THREE.MeshStandardMaterial({ color: 0x16111a, roughness: 0.85 });
+const seats = [];
+for (const s of [-1, 1]) for (let r = 0; r < 6; r++) {
+  const ytop = 0.45 + r * 0.45, x = s * (5.0 + r * 0.72);
+  const st = new THREE.Mesh(new THREE.BoxGeometry(0.72, ytop, 17.5), standMat); st.position.set(x, ytop / 2, 0); scene.add(st);
+  for (let z = -8.3; z <= 8.3; z += 0.52) if (Math.random() > 0.12) seats.push([x + (Math.random() - 0.5) * 0.1, ytop, z + (Math.random() - 0.5) * 0.12]);
+}
+for (const s of [-1, 1]) for (let r = 0; r < 6; r++) {
+  const ytop = 0.45 + r * 0.45, z = s * (7.3 + r * 0.72);
+  const st = new THREE.Mesh(new THREE.BoxGeometry(9.2, ytop, 0.72), standMat); st.position.set(0, ytop / 2, z); scene.add(st);
+  for (let x = -4.4; x <= 4.4; x += 0.52) if (Math.random() > 0.12) seats.push([x + (Math.random() - 0.5) * 0.12, ytop, z + (Math.random() - 0.5) * 0.1]);
+}
+for (let i = seats.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [seats[i], seats[j]] = [seats[j], seats[i]]; }
+const NCROWD = seats.length;
+const bodyMesh = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.17, 0.36, 2, 8), new THREE.MeshStandardMaterial({ roughness: 0.8 }), NCROWD);
+const headMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.12, 10, 8), new THREE.MeshStandardMaterial({ roughness: 0.7 }), NCROWD);
+const shirt = [0xff3d7f, 0x3dc8ff, 0xffffff, 0xffd34d, 0x9a5cff, 0x222233, 0xff7a3d, 0x2fd16b, 0x444455, 0xd81b5c];
+const skin = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac];
+const crowdPhase = new Float32Array(NCROWD), crowdAmp = new Float32Array(NCROWD);
+const _col = new THREE.Color(), _m4 = new THREE.Matrix4();
+for (let i = 0; i < NCROWD; i++) {
+  bodyMesh.setColorAt(i, _col.setHex(shirt[(Math.random() * shirt.length) | 0]));
+  headMesh.setColorAt(i, _col.setHex(skin[(Math.random() * skin.length) | 0]));
+  crowdPhase[i] = Math.random() * Math.PI * 2; crowdAmp[i] = 0.5 + Math.random() * 0.8;
+}
+scene.add(bodyMesh, headMesh);
+const crowd = { excite: 0.1, base: 0.1 };
+function updateCrowd(t, dt) {
+  crowd.excite = lerp(crowd.excite, crowd.base, Math.min(1, dt * 0.8));
+  const n = bodyMesh.count;
+  for (let i = 0; i < n; i++) {
+    const s = seats[i];
+    const jump = Math.max(0, Math.sin(t * (6 + crowdAmp[i] * 3) + crowdPhase[i])) * crowd.excite * 0.28 * crowdAmp[i];
+    const sway = Math.sin(t * 1.3 + crowdPhase[i]) * 0.02;
+    const y = s[1] + 0.35 + jump;
+    _m4.makeTranslation(s[0] + sway, y, s[2]); bodyMesh.setMatrixAt(i, _m4);
+    _m4.makeTranslation(s[0] + sway, y + 0.4, s[2]); headMesh.setMatrixAt(i, _m4);
+  }
+  bodyMesh.instanceMatrix.needsUpdate = true; headMesh.instanceMatrix.needsUpdate = true;
+}
+
+// Teto: treliça com luzes
+const trussMat = new THREE.MeshStandardMaterial({ color: 0x1b1b22, metalness: 0.8, roughness: 0.4 });
+const lampMat = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xfff2e0, emissiveIntensity: 6 });
+for (const s of [-1, 1]) {
+  const a = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.18, 0.18), trussMat); a.position.set(0, 6.6, s * 6.6); scene.add(a);
+  const b = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 13.2), trussMat); b.position.set(s * 4.8, 6.6, 0); scene.add(b);
+  for (let x = -4.2; x <= 4.2; x += 1.4) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.08, 0.22), lampMat); l.position.set(x, 6.48, s * 6.6); scene.add(l); }
+  for (let z = -5.6; z <= 5.6; z += 1.4) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.08, 0.22), lampMat); l.position.set(s * 4.8, 6.48, z); scene.add(l); }
+}
+const housing = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 0.3, 24), trussMat); housing.position.set(0, 6.4, 0.4); scene.add(housing);
+const lens = new THREE.Mesh(new THREE.CircleGeometry(0.45, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 3.8, 3.6) }));
+lens.rotation.x = Math.PI / 2; lens.position.set(0, 6.24, 0.4); scene.add(lens);
+for (const sp of [[-4, 5.5, -5], [4, 5.5, 5], [4, 5.5, -5], [-4, 5.5, 5]]) {
+  const h = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, 0.3, 16), trussMat); h.position.set(...sp); h.lookAt(0, TH, 0); h.rotateX(Math.PI / 2); scene.add(h);
+}
+
+// Telões com placar
+const jumboCanvas = document.createElement('canvas'); jumboCanvas.width = 1024; jumboCanvas.height = 400;
+const jumboTex = new THREE.CanvasTexture(jumboCanvas); jumboTex.colorSpace = THREE.SRGBColorSpace;
+const jumboMat = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffffff, emissiveMap: jumboTex, emissiveIntensity: 1.0 });
+for (const s of [-1, 1]) {
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(4.6, 1.95, 0.2), trussMat); frame.position.set(0, 4.1, s * 9.9); scene.add(frame);
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 1.72), jumboMat);
+  scr.position.set(0, 4.1, s * 9.79); scr.rotation.y = s > 0 ? Math.PI : 0; scene.add(scr);
+}
+
+/* =====================================================================
+   MESA
+   ===================================================================== */
+const table = new THREE.Group(); scene.add(table);
+const topTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#123f78'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 9000; i++) { g.fillStyle = `rgba(255,255,255,${Math.random() * 0.025})`; g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5); }
+});
+const topMat = new THREE.MeshPhysicalMaterial({ map: topTex, roughness: 0.5, clearcoat: 0.35, clearcoatRoughness: 0.4, envMapIntensity: 0.6 });
+const top = new THREE.Mesh(new RoundedBoxGeometry(TW, 0.03, TL, 2, 0.006), topMat);
+top.position.y = TH - 0.015; top.castShadow = true; top.receiveShadow = true; table.add(top);
+const lineMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.6 });
+const addLine = (w, l, x, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.0015, l), lineMat); m.position.set(x, TH + 0.0008, z); m.receiveShadow = true; table.add(m); };
+addLine(0.02, TL, -HW + 0.01, 0); addLine(0.02, TL, HW - 0.01, 0);
+addLine(TW, 0.02, 0, -HL + 0.01); addLine(TW, 0.02, 0, HL - 0.01);
+addLine(0.003, TL, 0, 0);
+const metal = new THREE.MeshStandardMaterial({ color: 0x2c3038, metalness: 0.9, roughness: 0.32 });
+const apron = new THREE.Mesh(new THREE.BoxGeometry(TW - 0.08, 0.05, TL - 0.08), new THREE.MeshStandardMaterial({ color: 0x101318, roughness: 0.6 }));
+apron.position.y = TH - 0.055; apron.castShadow = true; table.add(apron);
+for (const sz of [-1, 1]) {
+  const fz = sz * HL * 0.52;
+  for (const sx of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.05, TH - 0.08, 0.05), metal); leg.position.set(sx * HW * 0.72, (TH - 0.08) / 2, fz); leg.castShadow = true; table.add(leg);
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.035, 0.55), metal); foot.position.set(sx * HW * 0.72, 0.02, fz); foot.castShadow = true; table.add(foot);
+  }
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(HW * 1.44, 0.04, 0.04), metal); bar.position.set(0, 0.28, fz); table.add(bar);
+}
+const netTex = canvasTex(1024, 128, (g, w, h) => {
+  g.clearRect(0, 0, w, h);
+  g.strokeStyle = 'rgba(30,30,40,.9)'; g.lineWidth = 1.4;
+  for (let x = 0; x < w; x += 7) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
+  for (let y = 0; y < h; y += 7) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
+  g.fillStyle = 'rgba(255,255,255,.9)'; g.font = 'italic 900 34px system-ui'; g.textAlign = 'center'; g.fillText('PING PONG ONLINE', w / 2, h / 2 + 14);
+});
+const net = new THREE.Mesh(new THREE.PlaneGeometry(NET_HALF * 2, NET_H), new THREE.MeshStandardMaterial({ map: netTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, roughness: 0.8 }));
+net.position.set(0, TH + NET_H / 2, 0); table.add(net);
+const netBand = new THREE.Mesh(new THREE.BoxGeometry(NET_HALF * 2, 0.015, 0.006), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 }));
+netBand.position.set(0, NET_TOP - 0.0075, 0); table.add(netBand);
+for (const s of [-1, 1]) {
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, NET_H + 0.02, 12), metal);
+  post.position.set(s * (NET_HALF + 0.005), TH + NET_H / 2, 0); table.add(post);
+  const clamp_ = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.025, 0.05), metal);
+  clamp_.position.set(s * (HW + 0.03), TH - 0.005, 0); table.add(clamp_);
+}
+
+/* =====================================================================
+   BOLA, SOMBRA, BRILHO E RASTRO
+   ===================================================================== */
+const ballTex = canvasTex(256, 128, (g, w, h) => {
+  g.fillStyle = '#fffaf2'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#ff9a3c'; g.fillRect(0, h / 2 - 3, w, 6);
+  g.fillStyle = '#222'; g.font = 'bold 22px system-ui'; g.fillText('★★★', 30, h / 2 - 14);
+});
+const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.024, 28, 18), new THREE.MeshPhysicalMaterial({ map: ballTex, roughness: 0.3, clearcoat: 0.6, emissive: 0xffd0a0, emissiveIntensity: 0.25 }));
+scene.add(ballMesh);
+const ballGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: 0xffd9b0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.55 }));
+ballGlow.scale.set(0.13, 0.13, 1); scene.add(ballGlow);
+const blobMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false, alphaMap: dotTex });
+const blob = new THREE.Mesh(new THREE.CircleGeometry(0.032, 24), blobMat);
+blob.rotation.x = -Math.PI / 2; scene.add(blob);
+
+const TRAIL_N = 50;
+const trailPts = [];
+const trailGeo = new THREE.BufferGeometry();
+const tPos = new Float32Array(TRAIL_N * 2 * 3), tCol = new Float32Array(TRAIL_N * 2 * 3);
+trailGeo.setAttribute('position', new THREE.BufferAttribute(tPos, 3));
+trailGeo.setAttribute('color', new THREE.BufferAttribute(tCol, 3));
+{
+  const idx = [];
+  for (let i = 0; i < TRAIL_N - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  trailGeo.setIndex(idx);
+}
+const trailMesh = new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+trailMesh.frustumCulled = false; scene.add(trailMesh);
+const trailColor = new THREE.Color(0x22ff88);
+const TRAIL_COLORS = { 'TOP-SPIN': 0x22ff88, 'SMASH!': 0xff2844, 'BLOQUEIO': 0x44aaff, 'SIDE-SPIN': 0xffcc22, 'SAQUE': 0xffffff };
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
+function updateTrail() {
+  const n = trailPts.length;
+  if (n < 2) { trailGeo.setDrawRange(0, 0); return; }
+  for (let i = 0; i < n; i++) {
+    const p = trailPts[i];
+    const pa = trailPts[Math.max(0, i - 1)], pb = trailPts[Math.min(n - 1, i + 1)];
+    _a.set(pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]);
+    _b.set(camera.position.x - p[0], camera.position.y - p[1], camera.position.z - p[2]);
+    _c.crossVectors(_a, _b).normalize();
+    const k = i / (n - 1), wdt = 0.015 * k;
+    tPos.set([p[0] + _c.x * wdt, p[1] + _c.y * wdt, p[2] + _c.z * wdt, p[0] - _c.x * wdt, p[1] - _c.y * wdt, p[2] - _c.z * wdt], i * 6);
+    const f = k * k * 1.6;
+    tCol.set([trailColor.r * f, trailColor.g * f, trailColor.b * f, trailColor.r * f, trailColor.g * f, trailColor.b * f], i * 6);
+  }
+  trailGeo.attributes.position.needsUpdate = true;
+  trailGeo.attributes.color.needsUpdate = true;
+  trailGeo.setDrawRange(0, (n - 1) * 6);
+}
+
+/* =====================================================================
+   RAQUETES
+   ===================================================================== */
+function makePaddle(rubberColor, opacity = 1, backColor = 0x151515) {
+  const root = new THREE.Group(); const pivot = new THREE.Group(); root.add(pivot);
+  const tr = opacity < 1;
+  const mk = (o) => new THREE.MeshStandardMaterial({ roughness: 0.6, transparent: tr, opacity, ...o });
+  const rubberTex = canvasTex(256, 256, (g, w, h) => {
+    g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
+    g.fillStyle = 'rgba(0,0,0,.07)';
+    for (let y = 4; y < h; y += 8) for (let x = (y / 8 % 2) * 4; x < w; x += 8) { g.beginPath(); g.arc(x, y, 2, 0, 6.3); g.fill(); }
+    g.fillStyle = 'rgba(255,255,255,.85)'; g.font = 'italic 900 22px system-ui'; g.textAlign = 'center'; g.fillText('PRO', w / 2, h * 0.84);
+  });
+  const wood = new THREE.Mesh(new THREE.CylinderGeometry(0.083, 0.083, 0.007, 48), mk({ color: 0xd8b07e, roughness: 0.5 }));
+  wood.rotation.x = Math.PI / 2; wood.castShadow = true; pivot.add(wood);
+  const front = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.003, 48), mk({ color: rubberColor, map: rubberTex, roughness: 0.75 }));
+  front.rotation.x = Math.PI / 2; front.position.z = -0.005; pivot.add(front);
+  const back = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.003, 48), mk({ color: backColor, map: rubberTex, roughness: 0.8 }));
+  back.rotation.x = Math.PI / 2; back.position.z = 0.005; pivot.add(back);
+  const prof = [[0.019, 0], [0.017, 0.03], [0.015, 0.07], [0.016, 0.1], [0.022, 0.12], [0.03, 0.128]].map(([r, y]) => new THREE.Vector2(r, y));
+  const handle = new THREE.Mesh(new THREE.LatheGeometry(prof, 20), mk({ color: 0xb37a44, roughness: 0.5 }));
+  handle.scale.z = 0.62; handle.position.y = -0.205; handle.castShadow = true; pivot.add(handle);
+  scene.add(root);
+  root.userData = { pivot, swing: 0, vx: 0, vz: 0, lx: 0, lz: 0 };
+  return root;
+}
+const myPaddleMesh = makePaddle(0xb067ff, 0.85, 0x8a4fe0);
+const oppPaddleMesh = makePaddle(0xff2a44);
+
+/* =====================================================================
+   PARTÍCULAS (faíscas, poeira, confete) e ondas de impacto
+   ===================================================================== */
+function makeParticles(max, size, additive) {
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(max * 3).fill(-999), col = new Float32Array(max * 3);
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const mat = new THREE.PointsMaterial({ size, map: dotTex, vertexColors: true, transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending, sizeAttenuation: true, toneMapped: !additive });
+  const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; scene.add(pts);
+  const P = Array.from({ length: max }, () => ({ life: 0, max: 1, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, r: 1, g: 1, b: 1, grav: 3, drag: 1 }));
+  let cursor = 0;
+  return {
+    emit(n, x, y, z, color, speed, o = {}) {
+      const c = new THREE.Color(color);
+      for (let k = 0; k < n; k++) {
+        const p = P[cursor]; cursor = (cursor + 1) % max;
+        const th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1), s = speed * (0.4 + Math.random() * 0.8);
+        p.x = x + (o.spread ? (Math.random() - 0.5) * o.spread : 0); p.y = y; p.z = z + (o.spread ? (Math.random() - 0.5) * o.spread : 0);
+        p.vx = Math.sin(ph) * Math.cos(th) * s + (o.dir ? o.dir[0] : 0);
+        p.vy = Math.abs(Math.cos(ph)) * s * (o.upOnly ? 1 : Math.sign(Math.random() - 0.3)) + (o.up || 0);
+        p.vz = Math.sin(ph) * Math.sin(th) * s + (o.dir ? o.dir[2] : 0);
+        p.life = p.max = (o.life || 0.45) * (0.6 + Math.random() * 0.6);
+        const cc = o.rainbow ? new THREE.Color().setHSL(Math.random(), 0.9, 0.6) : c;
+        const it = o.intensity || 1;
+        p.r = cc.r * it; p.g = cc.g * it; p.b = cc.b * it;
+        p.grav = o.grav ?? 3; p.drag = o.drag ?? 1.5;
+      }
+    },
+    update(dt) {
+      for (let i = 0; i < max; i++) {
+        const p = P[i];
+        if (p.life <= 0) { if (pos[i * 3 + 1] !== -999) { pos[i * 3 + 1] = -999; col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = 0; } continue; }
+        p.life -= dt;
+        const d = Math.exp(-p.drag * dt);
+        p.vx *= d; p.vy = p.vy * d - p.grav * dt; p.vz *= d;
+        p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+        if (p.y < 0.01) { p.y = 0.01; p.vy *= -0.3; }
+        const f = Math.max(0, p.life / p.max);
+        pos[i * 3] = p.x; pos[i * 3 + 1] = p.y; pos[i * 3 + 2] = p.z;
+        col[i * 3] = p.r * f; col[i * 3 + 1] = p.g * f; col[i * 3 + 2] = p.b * f;
+      }
+      geo.attributes.position.needsUpdate = true; geo.attributes.color.needsUpdate = true;
+    }
+  };
+}
+const sparks = makeParticles(260, 0.028, true);
+const confetti = makeParticles(400, 0.06, false);
+
+// poeira flutuando na luz
+const DUST = 320;
+const dustGeo = new THREE.BufferGeometry();
+const dustPos = new Float32Array(DUST * 3), dustSeed = new Float32Array(DUST);
+for (let i = 0; i < DUST; i++) { dustPos[i * 3] = (Math.random() - 0.5) * 4.5; dustPos[i * 3 + 1] = 1 + Math.random() * 4.6; dustPos[i * 3 + 2] = (Math.random() - 0.5) * 5.5; dustSeed[i] = Math.random() * 100; }
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ size: 0.014, map: dotTex, color: 0xffe9f2, transparent: true, opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending }));
+scene.add(dust);
+function updateDust(t, dt) {
+  if (!dust.visible) return;
+  for (let i = 0; i < DUST; i++) {
+    dustPos[i * 3] += Math.sin(t * 0.3 + dustSeed[i]) * 0.02 * dt;
+    dustPos[i * 3 + 1] += (Math.cos(t * 0.2 + dustSeed[i]) * 0.02 - 0.01) * dt;
+    if (dustPos[i * 3 + 1] < 0.9) dustPos[i * 3 + 1] = 5.6;
+  }
+  dustGeo.attributes.position.needsUpdate = true;
+}
+
+const rings = [];
+for (let i = 0; i < 6; i++) {
+  const m = new THREE.Mesh(new THREE.RingGeometry(0.018, 0.026, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  m.rotation.x = -Math.PI / 2; scene.add(m); rings.push({ m, t: 1 });
+}
+let ringIdx = 0;
+function spawnRing(x, y, z, color) {
+  const r = rings[ringIdx]; ringIdx = (ringIdx + 1) % rings.length;
+  r.m.position.set(x, y, z); r.m.material.color.set(color).multiplyScalar(2); r.t = 0;
+}
+function updateRings(dt) {
+  for (const r of rings) {
+    if (r.t >= 1) { r.m.visible = false; continue; }
+    r.t = Math.min(1, r.t + dt / 0.4); r.m.visible = true;
+    const s = 1 + r.t * 4; r.m.scale.set(s, s, s); r.m.material.opacity = (1 - r.t) * 0.9;
+  }
+}
+
+/* =====================================================================
+   ESTADO DO JOGO
+   ===================================================================== */
+const S = {
+  mode: null, mySide: 1,
+  phase: 'lobby', phaseT: 0,
+  server: 1, firstServer: 1,
+  score: { '1': 0, '-1': 0 },
+  ball: { p: [0, BALL_Y + 0.3, 0], v: [0, 0, 0], w: [0, 0, 0] },
+  ballVisible: false,
+  rally: { hitter: 0, rb: 0, canHit: false, net: false, serve: false, t: 0 },
+  serveX: 0, serveBall: null, rtt: 0.08,
+  streak: 0, lastLabel: 'SAQUE',
+};
+const me = { x: 0, y: TH + 0.2, z: HL + 0.4, prevDepth: HL + 0.4 };
+const opp = { x: 0, y: TH + 0.2, z: -(HL + 0.4), tx: 0, ty: TH + 0.2, tz: -(HL + 0.4) };
+const bot = { x: 0, y: TH + 0.2, z: -(HL + 0.35), predX: 0, react: 0, served: false, lunge: 0, serveAt: 1 };
+
+const isAuth = side => S.mode === 'solo' || side === S.mySide;
+const sideOfBot = () => -S.mySide;
+
+/* =====================================================================
+   ENTRADA (mouse / toque)
+   ===================================================================== */
+const pointer = { nx: 0, ny: 0.5, hist: [] };
+const raycaster = new THREE.Raycaster();
+const hitPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(TH + 0.12));
+const _hit = new THREE.Vector3(), _ndc = new THREE.Vector2();
+
+function onPointer(e) {
+  const r = canvas.getBoundingClientRect();
+  let y = e.clientY;
+  if (e.pointerType === 'touch') y -= Math.min(70, r.height * 0.08);
+  pointer.nx = ((e.clientX - r.left) / r.width) * 2 - 1;
+  pointer.ny = ((y - r.top) / r.height) * 2 - 1;
+  const t = performance.now() / 1000;
+  pointer.hist.push({ t, hx: (e.clientX - r.left) / r.height, hy: (y - r.top) / r.height });
+  while (pointer.hist.length > 40 || (pointer.hist.length > 2 && t - pointer.hist[0].t > 0.3)) pointer.hist.shift();
+  ensureAudio();
+}
+canvas.addEventListener('pointermove', onPointer);
+canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture?.(e.pointerId); onPointer(e); });
+
+function swipeVel() {
+  const h = pointer.hist, now = performance.now() / 1000;
+  if (h.length < 2) return { x: 0, up: 0 };
+  const last = h[h.length - 1];
+  if (now - last.t > 0.07) return { x: 0, up: 0 };
+  let old = null;
+  for (let i = h.length - 1; i >= 0; i--) { if (last.t - h[i].t <= 0.1) old = h[i]; else break; }
+  if (!old || last.t - old.t < 0.012) return { x: 0, up: 0 };
+  const dt = last.t - old.t;
+  return { x: (last.hx - old.hx) / dt, up: -(last.hy - old.hy) / dt };
+}
+
+function updateMyPaddle(dt) {
+  _ndc.set(pointer.nx, -pointer.ny);
+  raycaster.setFromCamera(_ndc, camera);
+  if (raycaster.ray.intersectPlane(hitPlane, _hit)) {
+    const sd = S.mySide;
+    me.x = clamp(_hit.x, -1.4, 1.4);
+    me.z = sd * clamp(_hit.z * sd, HL - 0.45, HL + 1.15);
+  }
+  autoY(me, S.mySide, dt);
+}
+
+function autoY(pd, sd, dt) {
+  let ty = TH + 0.22;
+  const b = S.ball.p;
+  const incoming = (S.phase === 'rally' && S.rally.hitter === -sd) || (S.phase === 'serve' && S.server === sd);
+  if (incoming && Math.abs(b[2] * sd - pd.z * sd) < 1.5) ty = clamp(b[1], TH - 0.3, TH + 0.8);
+  pd.y += (ty - pd.y) * Math.min(1, dt * 16);
+}
+
+/* =====================================================================
+   REGRAS
+   ===================================================================== */
+function canSideHit(sd) { return S.phase === 'rally' && S.rally.hitter === -sd && S.rally.canHit; }
+
+function inHitWindow(sd, pd) {
+  const b = S.ball.p;
+  const bd = b[2] * sd, pdep = pd.z * sd;
+  return bd >= pdep - 0.15 && bd <= pdep + 0.2 && Math.abs(b[0] - pd.x) < 0.26 && b[1] > TH - 0.38 && b[1] < TH + 0.95;
+}
+
+function playerHit(serve) {
+  const sv = swipeVel();
+  const sd = S.mySide;
+  const power = Math.max(0, sv.up) / POWER_DIV;
+  const B = [...S.ball.p];
+  const tx = B[0] * 0.3 + sd * sv.x * 0.32;
+  const sideSpin = -sd * sv.x * 14;
+  const shot = makeShot(sd, B, power, tx, sideSpin, serve);
+  applyHit(sd, B, shot, serve);
+  if (S.mode === 'online') send({ t: 'hit', side: sd, p: B, v: shot.v, w: shot.w, serve, label: shot.label });
+}
+
+function applyHit(side, B, shot, serve) {
+  S.ball.p = [...B]; S.ball.v = [...shot.v]; S.ball.w = [...shot.w];
+  S.rally = { hitter: side, rb: 0, canHit: false, net: false, serve, t: 0 };
+  S.phase = 'rally'; S.phaseT = 0; S.ballVisible = true;
+  S.streak = serve ? 0 : S.streak + 1;
+  S.lastLabel = shot.label;
+  trailPts.length = 0;
+  trailColor.setHex(TRAIL_COLORS[shot.label] || 0x22ff88);
+  showLabel(shot.label);
+  sfx('hit', shot.label);
+  fxHit(side, B, shot.label);
+  if (S.mode === 'solo' && side !== sideOfBot()) botPredict();
+}
+
+function evalEvent(e) {
+  if (S.phase !== 'rally') return;
+  const H = S.rally.hitter, Rv = -H;
+  if (!isAuth(Rv)) return;               // quem recebe a bola é o "juiz" da jogada
+  if (e.t === 'net') { S.rally.net = true; return; }
+  if (e.t === 'table') {
+    if (e.z * Rv > 0) {
+      S.rally.rb++;
+      if (S.rally.rb === 1) S.rally.canHit = true;
+      else awardPoint(H, 'miss');
+    } else {
+      awardPoint(S.rally.rb === 0 ? Rv : H, S.rally.rb === 0 ? 'net' : 'miss');
+    }
+  } else if (e.t === 'dead') {
+    if (S.rally.rb === 0) awardPoint(Rv, S.rally.net ? 'net' : 'out');
+    else awardPoint(H, 'miss');
+  }
+}
+
+function awardPoint(winner, reason) {
+  S.score[winner]++;
+  if (S.mode === 'online') send({ t: 'point', winner, reason, score: S.score });
+  onPoint(winner, reason);
+}
+
+function onPoint(winner, reason) {
+  S.phase = 'point'; S.phaseT = 0;
+  const mine = winner === S.mySide;
+  const who = S.mode === 'solo' ? 'do computador' : 'do seu amigo';
+  let sub;
+  if (reason === 'miss') sub = mine ? (S.mode === 'solo' ? 'o computador não devolveu' : 'seu amigo não devolveu') : 'você não devolveu';
+  else sub = { out: 'bola fora', net: 'bola na rede' }[reason] || '';
+  const rally = S.streak;
+  if (rally >= 8) sub += ` · rally de ${rally}!`;
+  showMsg(mine ? 'PONTO SEU!' : `Ponto ${who}`, sub);
+  sfx(mine ? 'win' : 'lose');
+  fxPoint(mine, rally);
+  bumpScore(mine ? 'scoreL' : 'scoreR');
+  S.streak = 0;
+  updateHud();
+}
+
+function computeServer() {
+  const a = S.score['1'], b = S.score['-1'], tot = a + b;
+  const idx = (a >= POINT_TO_WIN - 1 && b >= POINT_TO_WIN - 1) ? tot % 2 : Math.floor(tot / 2) % 2;
+  return idx === 0 ? S.firstServer : -S.firstServer;
+}
+function isGameOver() {
+  const a = S.score['1'], b = S.score['-1'];
+  return (a >= POINT_TO_WIN || b >= POINT_TO_WIN) && Math.abs(a - b) >= 2;
+}
+function matchPointFor() {
+  const a = S.score['1'], b = S.score['-1'];
+  if (a >= POINT_TO_WIN - 1 && a - b >= 1) return 1;
+  if (b >= POINT_TO_WIN - 1 && b - a >= 1) return -1;
+  return 0;
+}
+
+function nextPoint() {
+  if (isGameOver()) { S.phase = 'over'; S.ballVisible = false; showOver(); return; }
+  S.server = computeServer();
+  S.phase = 'serve'; S.phaseT = 0; S.serveBall = null;
+  S.serveX = S.server === S.mySide ? clamp(me.x, -0.6, 0.6) : (Math.random() - 0.5) * 0.8;
+  bot.served = false; bot.serveAt = 0.9 + Math.random() * 0.8;
+  trailPts.length = 0;
+  if (S.server === S.mySide) showMsg('Seu saque', 'raquete atrás da bola + movimento para cima');
+  updateHud();
+}
+
+function serveBallPos() {
+  const t = S.phaseT;
+  return [S.serveX, TH + 0.2 + 0.2 * Math.abs(Math.sin(t * 2.4)), S.server * (HL + 0.12)];
+}
+
+function resetMatch(firstServer) {
+  S.score = { '1': 0, '-1': 0 };
+  S.firstServer = firstServer;
+  S.phase = 'point'; S.phaseT = -0.6;   // espera a câmera de entrada
+  S.ballVisible = false; S.streak = 0;
+  $('over').classList.add('hidden');
+  updateHud();
+}
+
+/* =====================================================================
+   COMPUTADOR (modo treino)
+   ===================================================================== */
+function botPredict() {
+  const sd = sideOfBot();
+  const b = { p: [...S.ball.p], v: [...S.ball.v], w: [...S.ball.w] };
+  let bounced = false, x = 0, found = false;
+  for (let i = 0; i < 900; i++) {
+    const ev = []; stepBall(b, DT, ev, true);
+    for (const e of ev) if (e.t === 'table' && e.z * sd > 0) bounced = true;
+    if (bounced && b.p[2] * sd >= HL + 0.3) { x = b.p[0]; found = true; break; }
+    if (b.p[1] < TH - 0.35) break;
+  }
+  bot.predX = found ? x + (Math.random() - 0.5) * 0.1 : bot.x;
+  bot.react = 0.12 + Math.random() * 0.1;
+}
+
+function botHit(serve) {
+  const sd = sideOfBot();
+  let power = serve ? 0.3 + Math.random() * 0.6 : 0.4 + Math.random() * 0.55;
+  let tx = (Math.random() * 2 - 1) * (serve ? 0.45 : 0.58);
+  const r = Math.random();
+  if (!serve && r < 0.06) power = 1.4;
+  else if (!serve && r < 0.11) tx = Math.sign(tx || 1) * 0.98;
+  const B = [...S.ball.p];
+  const shot = makeShot(sd, B, power, tx, (Math.random() * 2 - 1) * 18, serve);
+  applyHit(sd, B, shot, serve);
+  bot.lunge = 0.22;
+}
+
+function botStep(dt) {
+  const sd = sideOfBot();
+  let tx = bot.x * 0.98, depth = HL + 0.35, maxV = 2.3;
+  if (S.phase === 'serve' && S.server === sd) {
+    tx = S.serveX; depth = HL + 0.3; maxV = 4;
+    if (S.phaseT > bot.serveAt && !bot.served && Math.abs(bot.x - S.serveX) < 0.05) { bot.served = true; S.ball.p = serveBallPos(); botHit(true); }
+  } else if (S.phase === 'rally' && S.rally.hitter === -sd) {
+    if (bot.react > 0) { bot.react -= dt; tx = bot.x; } else tx = bot.predX;
+  } else {
+    tx = bot.x + (0 - bot.x) * 0.02;
+  }
+  bot.x += clamp(tx - bot.x, -maxV * dt, maxV * dt);
+  bot.lunge = Math.max(0, bot.lunge - dt);
+  bot.z = sd * (depth - bot.lunge * 1.2);
+  autoY(bot, sd, dt);
+  if (canSideHit(sd) && inHitWindow(sd, bot)) botHit(false);
+}
+
+/* =====================================================================
+   LOOP DA FÍSICA
+   ===================================================================== */
+function physicsStep(dt) {
+  if (S.phase === 'lobby' || S.phase === 'over') return;
+  S.phaseT += dt;
+
+  if (S.phase === 'serve') {
+    if (isAuth(S.server)) { S.ball.p = serveBallPos(); S.ballVisible = true; }
+    else { S.ballVisible = !!S.serveBall; if (S.serveBall) S.ball.p = [...S.serveBall]; }
+    if (S.server === S.mySide && S.phaseT > 0.45) {
+      const bd = S.ball.p[2] * S.mySide, cd = me.z * S.mySide;
+      if (me.prevDepth > bd && cd <= bd + 0.02 && Math.abs(me.x - S.ball.p[0]) < 0.26) playerHit(true);
+    }
+  } else if (S.phase === 'rally' || S.phase === 'point') {
+    const ev = [];
+    stepBall(S.ball, dt, ev, true);
+    for (const e of ev) {
+      if (e.t === 'table') { sfx('table'); fxBounce(e.x, e.z); }
+      else if (e.t === 'net') sfx('net');
+      else if (e.t === 'floor' && e.s > 0.4) sfx('floor');
+    }
+    if (S.phase === 'rally') {
+      S.rally.t += dt;
+      for (const e of ev) evalEvent(e);
+      if (S.phase === 'rally' && (S.ball.p[1] < TH - 0.4 || S.rally.t > 6 || Math.abs(S.ball.p[2]) > HL + 3.5)) evalEvent({ t: 'dead' });
+      if (canSideHit(S.mySide) && inHitWindow(S.mySide, me)) playerHit(false);
+    }
+    if (S.phase === 'point' && S.phaseT > 1.0) S.ballVisible = false;
+    if (S.phase === 'point' && S.phaseT > 1.35) nextPoint();
+  }
+  if (S.mode === 'solo') botStep(dt);
+  me.prevDepth = me.z * S.mySide;
+}
+
+/* =====================================================================
+   REDE (PeerJS / WebRTC — conexão direta entre os dois navegadores)
+   ===================================================================== */
+let peer = null, conn = null, isHost = false;
+let lastPadSend = 0, lastPing = 0;
+
+function send(m) { if (conn && conn.open) { try { conn.send(m); } catch (e) { } } }
+function genCode() {
+  const ch = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let s = ''; for (let i = 0; i < 5; i++) s += ch[Math.floor(Math.random() * ch.length)];
+  return s;
+}
+function cleanupNet() {
+  try { conn && conn.close(); } catch (e) { }
+  try { peer && peer.destroy(); } catch (e) { }
+  conn = null; peer = null;
+}
+function netErrorText(e) {
+  const t = e && e.type;
+  if (t === 'peer-unavailable') return 'Sala não encontrada. Confira o código (ou peça um link novo).';
+  if (t === 'network' || t === 'server-error' || t === 'socket-error') return 'Não consegui falar com o servidor de conexão. Verifique sua internet e tente de novo.';
+  if (t === 'browser-incompatible') return 'Seu navegador não suporta WebRTC. Use Chrome, Edge, Safari ou Firefox atualizados.';
+  return 'Erro de conexão: ' + (t || e);
+}
+function createRoom() {
+  if (typeof Peer === 'undefined') { lobbyMsg('Não carregou a biblioteca de rede. Recarregue a página.'); return; }
+  cleanupNet(); isHost = true;
+  const code = genCode();
+  showPanel('wait'); $('codeTxt').textContent = '·····'; lobbyMsg('');
+  peer = new Peer(PEER_PREFIX + code, { debug: 1 });
+  peer.on('open', () => {
+    const link = `${location.origin}${location.pathname}?sala=${code}`;
+    $('codeTxt').textContent = code;
+    $('linkTxt').value = link;
+    $('btnWa').href = 'https://wa.me/?text=' + encodeURIComponent('Bora jogar ping pong? 🏓 ' + link);
+  });
+  peer.on('connection', c => {
+    if (conn) { c.on('open', () => c.close()); return; }
+    setupConn(c);
+  });
+  peer.on('error', e => {
+    if (e.type === 'unavailable-id') { createRoom(); return; }
+    lobbyMsg(netErrorText(e));
+  });
+  peer.on('disconnected', () => { if (!conn) { try { peer.reconnect(); } catch (e) { } } });
+}
+function joinRoom(code) {
+  if (typeof Peer === 'undefined') { lobbyMsg('Não carregou a biblioteca de rede. Recarregue a página.'); return; }
+  code = (code || '').trim().toUpperCase();
+  if (code.length < 4) { lobbyMsg('Digite o código da sala.'); return; }
+  cleanupNet(); isHost = false;
+  showPanel('joining'); $('joinTxt').textContent = `Entrando na sala ${code}…`; lobbyMsg('');
+  peer = new Peer({ debug: 1 });
+  peer.on('open', () => {
+    const c = peer.connect(PEER_PREFIX + code, { reliable: true });
+    setupConn(c);
+    setTimeout(() => { if (!c.open && S.phase === 'lobby' && conn === c) { lobbyMsg('Não consegui conectar. Pode ser a rede (Wi-Fi corporativo/4G bloqueando). Tente outra rede.'); showPanel('menu'); cleanupNet(); } }, 15000);
+  });
+  peer.on('error', e => { lobbyMsg(netErrorText(e)); showPanel('menu'); });
+}
+function setupConn(c) {
+  conn = c;
+  c.on('open', () => { if (isHost) { send({ t: 'start' }); startGame('online', 1); } });
+  c.on('data', onMsg);
+  c.on('close', () => onDisconnect());
+  c.on('error', () => onDisconnect());
+}
+function onDisconnect() {
+  if (S.mode !== 'online') return;
+  goMenu();
+  lobbyMsg('A conexão com seu amigo caiu.');
+}
+function onMsg(m) {
+  if (!m || typeof m !== 'object') return;
+  switch (m.t) {
+    case 'start': startGame('online', -1); break;
+    case 'pad':
+      opp.tx = m.x; opp.ty = m.y; opp.tz = m.z;
+      S.serveBall = m.b || null;
+      break;
+    case 'hit': {
+      if (S.phase === 'lobby' || S.phase === 'over') return;
+      applyHit(m.side, m.p, { v: m.v, w: m.w, label: m.label }, m.serve);
+      const ff = Math.min(S.rtt / 2, 0.2) * TIME_SCALE;   // compensa atraso da rede
+      for (let t = 0; t < ff; t += DT) {
+        const ev = []; stepBall(S.ball, DT, ev, true);
+        for (const e of ev) evalEvent(e);
+        if (S.phase !== 'rally') break;
+      }
+      break;
+    }
+    case 'point':
+      S.score = { '1': m.score['1'], '-1': m.score['-1'] };
+      onPoint(m.winner, m.reason);
+      break;
+    case 'ping': send({ t: 'pong', ts: m.ts }); break;
+    case 'pong': {
+      const rtt = (performance.now() - m.ts) / 1000;
+      S.rtt = S.rtt * 0.7 + rtt * 0.3;
+      $('ping').textContent = `ping ${Math.round(S.rtt * 1000)} ms`;
+      break;
+    }
+    case 'rematch': resetMatch(-S.firstServer); break;
+  }
+}
+function netTick(now) {
+  if (S.mode !== 'online' || !conn) return;
+  if (now - lastPadSend > 33) {
+    lastPadSend = now;
+    const serving = S.phase === 'serve' && S.server === S.mySide;
+    send({ t: 'pad', x: +me.x.toFixed(3), y: +me.y.toFixed(3), z: +me.z.toFixed(3), b: serving ? S.ball.p.map(v => +v.toFixed(3)) : null });
+  }
+  if (now - lastPing > 1000) { lastPing = now; send({ t: 'ping', ts: now }); }
+}
+
+/* =====================================================================
+   SOM (sintetizado — sem arquivos): batidas, torcida, aplausos
+   ===================================================================== */
+let actx = null, master = null, noiseBuf = null, crowdGain = null, cheerGain = null;
+let muted = store.get('pp_mute', '0') === '1';
+function ensureAudio() {
+  if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    master = actx.createGain(); master.gain.value = muted ? 0 : 0.9; master.connect(actx.destination);
+    noiseBuf = actx.createBuffer(1, actx.sampleRate * 3, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < d.length; i++) { const w = Math.random() * 2 - 1; last = last * 0.6 + w * 0.4; d[i] = last; }
+    // murmúrio da torcida
+    const amb = actx.createBufferSource(); amb.buffer = noiseBuf; amb.loop = true;
+    const lp = actx.createBiquadFilter(); lp.type = 'bandpass'; lp.frequency.value = 520; lp.Q.value = 0.6;
+    crowdGain = actx.createGain(); crowdGain.gain.value = 0.05;
+    amb.connect(lp).connect(crowdGain).connect(master); amb.start();
+    // aplausos (ruído agudo modulado)
+    const ap = actx.createBufferSource(); ap.buffer = noiseBuf; ap.loop = true; ap.playbackRate.value = 1.7;
+    const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1400;
+    cheerGain = actx.createGain(); cheerGain.gain.value = 0;
+    ap.connect(hp).connect(cheerGain).connect(master); ap.start();
+  } catch (e) { actx = null; }
+}
+function pock(freq, vol, dur, q = 5) {
+  if (!actx) return;
+  const t = actx.currentTime;
+  const src = actx.createBufferSource(); src.buffer = noiseBuf; src.playbackRate.value = 2;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = q;
+  const g = actx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(bp).connect(g).connect(master); src.start(t, Math.random() * 2); src.stop(t + dur + 0.02);
+  const o = actx.createOscillator(), og = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(freq * 0.55, t); o.frequency.exponentialRampToValueAtTime(freq * 0.35, t + dur);
+  og.gain.setValueAtTime(vol * 0.5, t); og.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.9);
+  o.connect(og).connect(master); o.start(t); o.stop(t + dur + 0.02);
+}
+function tone(freq, dur, vol, type = 'triangle', delay = 0) {
+  if (!actx) return;
+  const t0 = actx.currentTime + delay;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g).connect(master); o.start(t0); o.stop(t0 + dur + 0.02);
+}
+function cheer(amount) {
+  if (!actx) return;
+  const t = actx.currentTime;
+  crowdGain.gain.cancelScheduledValues(t); cheerGain.gain.cancelScheduledValues(t);
+  crowdGain.gain.setTargetAtTime(0.05 + 0.22 * amount, t, 0.08); crowdGain.gain.setTargetAtTime(0.05, t + 0.7, 0.8);
+  cheerGain.gain.setTargetAtTime(0.16 * amount, t + 0.05, 0.1); cheerGain.gain.setTargetAtTime(0, t + 0.9, 0.7);
+}
+function sfx(k, label) {
+  if (!actx) return;
+  if (k === 'hit') { const smash = label === 'SMASH!'; pock(smash ? 2100 : 2600, smash ? 0.55 : 0.4, smash ? 0.07 : 0.05); }
+  else if (k === 'table') pock(1700, 0.32, 0.045, 7);
+  else if (k === 'net') pock(400, 0.25, 0.08, 2);
+  else if (k === 'floor') pock(1200, 0.12, 0.04, 6);
+  else if (k === 'win') { tone(660, 0.12, 0.08); tone(990, 0.2, 0.08, 'triangle', 0.1); }
+  else if (k === 'lose') { tone(440, 0.14, 0.06); tone(330, 0.2, 0.06, 'triangle', 0.12); }
+}
+function setMuted(v) {
+  muted = v; store.set('pp_mute', v ? '1' : '0');
+  if (master) master.gain.value = v ? 0 : 0.9;
+  $('btnSound').textContent = v ? '🔇' : '🔊';
+}
+
+/* =====================================================================
+   EFEITOS
+   ===================================================================== */
+const cam = { pos: new THREE.Vector3(), look: new THREE.Vector3(), fov: 50, ox: 0, shake: 0, fovKick: 0, introT: 0, introDur: 1.8, from: new THREE.Vector3(), fromLook: new THREE.Vector3(0, TH, 0) };
+let ledFlash = 0, hitFlash = 0;
+
+function fxHit(side, B, label) {
+  const c = TRAIL_COLORS[label] || 0x22ff88;
+  const smash = label === 'SMASH!';
+  sparks.emit(smash ? 42 : 18, B[0], B[1], B[2], c, smash ? 3.2 : 1.6, { life: smash ? 0.5 : 0.35, intensity: 2.5, grav: 2, drag: 3 });
+  hitLight.position.set(B[0], B[1] + 0.1, B[2]); hitLight.color.setHex(c); hitFlash = smash ? 1 : 0.55;
+  const near = side === S.mySide;
+  if (smash) { cam.shake = near ? 0.6 : 1; cam.fovKick = near ? -2 : 3; crowd.excite = Math.min(1, crowd.excite + 0.35); cheer(0.35); }
+  else if (near) cam.shake = Math.max(cam.shake, 0.15);
+  const pm = side === S.mySide ? myPaddleMesh : oppPaddleMesh; pm.userData.swing = 1;
+  crowd.base = clamp(0.08 + S.streak * 0.04, 0.08, 0.6);
+  updateStreak();
+}
+function fxBounce(x, z) {
+  spawnRing(x, TH + 0.003, z, trailColor);
+  sparks.emit(5, x, TH + 0.01, z, trailColor, 0.6, { life: 0.25, intensity: 1.6, grav: 1, upOnly: true });
+}
+function fxPoint(mine, rally) {
+  const amount = clamp(0.45 + rally * 0.05, 0.45, 1);
+  crowd.excite = Math.min(1, 0.55 + amount * 0.45); crowd.base = 0.08;
+  cheer(amount);
+  ledFlash = 1;
+  const p = S.ball.p;
+  sparks.emit(30, p[0], Math.max(p[1], TH), p[2], mine ? 0x9a5cff : 0xff3355, 2.2, { life: 0.7, intensity: 2, grav: 2 });
+  updateStreak();
+}
+function fxWin(mine) {
+  confetti.emit(260, 0, 4.2, 0, 0xffffff, 1.6, { rainbow: true, life: 4.5, grav: 0.9, drag: 1.4, spread: 6 });
+  crowd.excite = 1; cheer(1);
+  setTimeout(() => cheer(0.8), 1200);
+}
+
+/* =====================================================================
+   UI
+   ===================================================================== */
+let labelTimer = 0, toastTimer = 0, overTimer = 0;
+function showLabel(txt) {
+  const el = $('label'); el.textContent = txt; el.classList.add('show');
+  el.style.setProperty('--c', '#' + new THREE.Color(TRAIL_COLORS[txt] || 0x22ff88).getHexString());
+  clearTimeout(labelTimer); labelTimer = setTimeout(() => el.classList.remove('show'), 900);
+}
+function showMsg(big, small) {
+  const el = $('msg'); el.innerHTML = `${big}${small ? `<small>${small}</small>` : ''}`;
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+}
+function toast(t) {
+  const el = $('toast'); el.textContent = t; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+function bumpScore(id) { const el = $(id); el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+function lobbyMsg(t) { $('lobbyMsg').textContent = t; }
+function showPanel(id) { for (const p of ['menu', 'wait', 'joining']) $(p).classList.toggle('hidden', p !== id); }
+function updateStreak() {
+  const n = S.streak;
+  $('streakN').textContent = n;
+  $('streak').classList.toggle('show', n >= 3 && S.phase === 'rally');
+  $('streak').querySelector('.fire').style.transform = `scale(${1 + Math.min(n, 20) * 0.03})`;
+}
+
+function drawJumbo() {
+  const g = jumboCanvas.getContext('2d'), w = jumboCanvas.width, h = jumboCanvas.height;
+  const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#120612'); gr.addColorStop(1, '#05030a');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#ff2a6a'; g.fillRect(0, 0, w, 54);
+  g.fillStyle = '#fff'; g.font = 'italic 900 34px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('PING PONG ONLINE', w / 2, 28);
+  const mine = S.score[String(S.mySide)], theirs = S.score[String(-S.mySide)];
+  const oppName = S.mode === 'solo' ? 'CPU' : 'AMIGO';
+  g.font = '800 40px system-ui'; g.fillStyle = '#c9a8ff'; g.fillText('VOCÊ', w * 0.25, 120);
+  g.fillStyle = '#ff8a9c'; g.fillText(oppName, w * 0.75, 120);
+  g.font = '900 170px system-ui'; g.fillStyle = '#fff';
+  g.fillText(String(mine), w * 0.25, 245); g.fillText(String(theirs), w * 0.75, 245);
+  g.font = '900 90px system-ui'; g.fillStyle = 'rgba(255,255,255,.4)'; g.fillText('×', w / 2, 240);
+  const inGame = S.phase !== 'lobby' && S.phase !== 'over';
+  if (inGame) {
+    const srv = S.phase === 'serve' ? S.server : computeServer();
+    g.fillStyle = '#ffd34d'; g.beginPath(); g.arc(srv === S.mySide ? w * 0.25 - 110 : w * 0.75 + 110, 120, 12, 0, 6.3); g.fill();
+  }
+  const mp = matchPointFor();
+  g.font = '800 34px system-ui';
+  if (mp && inGame) { g.fillStyle = '#ff2a55'; g.fillText('MATCH POINT', w / 2, 355); }
+  else { g.fillStyle = 'rgba(255,255,255,.5)'; g.fillText(`ATÉ ${POINT_TO_WIN} PONTOS`, w / 2, 355); }
+  for (let y = 0; y < h; y += 3) { g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(0, y, w, 1); }
+  jumboTex.needsUpdate = true;
+}
+
+function updateHud() {
+  const mine = S.score[String(S.mySide)], theirs = S.score[String(-S.mySide)];
+  $('scoreL').textContent = mine; $('scoreR').textContent = theirs;
+  const inGame = S.phase !== 'lobby' && S.phase !== 'over';
+  const nextSrv = S.phase === 'serve' ? S.server : computeServer();
+  $('srvL').classList.toggle('on', inGame && nextSrv === S.mySide);
+  $('srvR').classList.toggle('on', inGame && nextSrv !== S.mySide);
+  $('tag').classList.toggle('show', inGame && matchPointFor() !== 0);
+  updateStreak();
+  drawJumbo();
+}
+
+function showOver() {
+  const mine = S.score[String(S.mySide)], theirs = S.score[String(-S.mySide)];
+  const won = mine > theirs;
+  $('overTitle').textContent = won ? 'Você venceu! 🏆' : (S.mode === 'solo' ? 'O computador venceu' : 'Seu amigo venceu');
+  $('overScore').textContent = `${mine} × ${theirs}`;
+  clearTimeout(overTimer); overTimer = setTimeout(() => { if (S.phase === 'over') $('over').classList.remove('hidden'); }, 1400);
+  fxWin(won);
+  updateHud();
+}
+
+/* =====================================================================
+   CÂMERA
+   ===================================================================== */
+function camBase() {
+  const sd = S.mySide;
+  const aspect = window.innerWidth / window.innerHeight;
+  const portrait = aspect < 0.9;
+  cam.fov = portrait ? 66 : 50;
+  const back = portrait ? 2.6 : 1.8, up = portrait ? 1.45 : 1.12;
+  cam.pos.set(0, TH + up, sd * (HL + back));
+  cam.look.set(0, TH - (portrait ? 0.4 : 0.32), -sd * 0.35);
+}
+const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+function updateCamera(dt, now) {
+  camBase();
+  const tox = (S.ballVisible ? S.ball.p[0] * 0.1 : 0) + me.x * 0.05;
+  cam.ox = lerp(cam.ox, tox, Math.min(1, dt * 2.2));
+  const px = cam.pos.x + cam.ox, py = cam.pos.y + Math.sin(now * 0.0009) * 0.006, pz = cam.pos.z;
+  const lx = cam.look.x + cam.ox * 0.6, ly = cam.look.y, lz = cam.look.z;
+  if (cam.introT > 0) {
+    cam.introT = Math.max(0, cam.introT - dt);
+    const k = ease(1 - cam.introT / cam.introDur);
+    camera.position.set(lerp(cam.from.x, px, k), lerp(cam.from.y, py, k), lerp(cam.from.z, pz, k));
+    camera.lookAt(lerp(cam.fromLook.x, lx, k), lerp(cam.fromLook.y, ly, k), lerp(cam.fromLook.z, lz, k));
+  } else {
+    camera.position.set(px, py, pz);
+    camera.lookAt(lx, ly, lz);
+  }
+  if (cam.shake > 0) {
+    const s = cam.shake * cam.shake * 0.02;
+    camera.position.x += (Math.random() - 0.5) * s; camera.position.y += (Math.random() - 0.5) * s;
+    cam.shake = Math.max(0, cam.shake - dt * 3);
+  }
+  cam.fovKick = lerp(cam.fovKick, 0, Math.min(1, dt * 4));
+  camera.fov = cam.fov + cam.fovKick;
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+}
+
+/* =====================================================================
+   QUALIDADE GRÁFICA
+   ===================================================================== */
+function applyQuality(level, silent) {
+  Q.level = level; store.set('pp_q', level);
+  const alto = level === 'alto';
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, alto ? 2 : 1.25));
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  const ms = alto ? 2048 : 1024;
+  if (mainSpot.shadow.mapSize.x !== ms) { mainSpot.shadow.mapSize.set(ms, ms); if (mainSpot.shadow.map) { mainSpot.shadow.map.dispose(); mainSpot.shadow.map = null; } }
+  bodyMesh.count = headMesh.count = alto ? NCROWD : Math.floor(NCROWD * 0.55);
+  dust.visible = alto;
+  for (const b of beams.slice(3)) b.visible = alto;
+  buildComposer();
+  $('btnQuality').textContent = alto ? 'HD' : 'LEVE';
+  if (!silent) toast(alto ? 'Gráficos: Alto (HD)' : 'Gráficos: Leve (mais rápido)');
+}
+const perf = { frames: 0, t: 0, low: 0, checked: false };
+function perfMonitor(rawDt) {
+  if (Q.level !== 'alto' || perf.checked || S.phase === 'lobby') return;
+  perf.frames++; perf.t += rawDt;
+  if (perf.t >= 2) {
+    const fps = perf.frames / perf.t; perf.frames = 0; perf.t = 0;
+    if (fps < 34) { if (++perf.low >= 2) { perf.checked = true; applyQuality('leve', true); toast('Gráficos ajustados para o modo leve (mais fluido)'); } }
+    else perf.low = 0;
+  }
+}
+
+/* =====================================================================
+   FLUXO DE TELAS
+   ===================================================================== */
+function startGame(mode, side) {
+  S.mode = mode; S.mySide = side;
+  me.z = side * (HL + 0.4); me.prevDepth = HL + 0.4;
+  opp.x = opp.tx = 0; opp.z = opp.tz = -side * (HL + 0.4);
+  bot.x = 0; bot.z = -side * (HL + 0.35);
+  $('nameL').textContent = 'VOCÊ';
+  $('nameR').textContent = mode === 'solo' ? 'CPU' : 'AMIGO';
+  $('ping').textContent = mode === 'solo' ? '' : 'conectado';
+  $('lobby').classList.add('hidden');
+  $('hud').classList.remove('hidden');
+  cam.from.copy(camera.position); cam.fromLook.set(0, TH, 0); cam.introT = cam.introDur;
+  resetMatch(1);
+  crowd.excite = 0.7; cheer(0.6);
+  if (mode === 'online' && location.search.includes('sala=')) history.replaceState(null, '', location.pathname);
+}
+function goMenu() {
+  const wasOnline = S.mode === 'online';
+  S.mode = null; S.phase = 'lobby'; S.ballVisible = false;
+  if (wasOnline) cleanupNet();
+  $('hud').classList.add('hidden'); $('over').classList.add('hidden');
+  $('lobby').classList.remove('hidden'); showPanel('menu'); lobbyMsg('');
+  updateHud();
+}
+
+$('btnCreate').onclick = () => { ensureAudio(); createRoom(); };
+$('btnJoin').onclick = () => { ensureAudio(); joinRoom($('inCode').value); };
+$('inCode').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom($('inCode').value); });
+$('btnSolo').onclick = () => { ensureAudio(); cleanupNet(); startGame('solo', 1); };
+$('btnCancel').onclick = $('btnCancel2').onclick = () => { cleanupNet(); showPanel('menu'); lobbyMsg(''); };
+$('btnCopy').onclick = async () => {
+  const v = $('linkTxt').value;
+  try { await navigator.clipboard.writeText(v); } catch (e) { $('linkTxt').select(); document.execCommand('copy'); }
+  $('btnCopy').textContent = 'Link copiado!'; setTimeout(() => $('btnCopy').textContent = 'Copiar link', 1500);
+};
+$('btnRematch').onclick = () => { if (S.mode === 'online') send({ t: 'rematch' }); resetMatch(-S.firstServer); };
+$('btnMenu').onclick = () => goMenu();
+$('quit').onclick = () => goMenu();
+$('btnSound').onclick = () => { ensureAudio(); setMuted(!muted); };
+$('btnQuality').onclick = () => { perf.checked = true; applyQuality(Q.level === 'alto' ? 'leve' : 'alto'); };
+setMuted(muted);
+
+/* =====================================================================
+   RENDER
+   ===================================================================== */
+const _q = new THREE.Quaternion(), _ax = new THREE.Vector3();
+function placePaddle(mesh, pd, sd, dt) {
+  const u = mesh.userData;
+  const vx = dt > 0 ? (pd.x - u.lx) / dt : 0, vz = dt > 0 ? (pd.z - u.lz) / dt : 0;
+  u.lx = pd.x; u.lz = pd.z;
+  u.vx = lerp(u.vx, vx, Math.min(1, dt * 12)); u.vz = lerp(u.vz, vz, Math.min(1, dt * 12));
+  u.swing = Math.max(0, u.swing - dt * 4.5);
+  const fwd = -u.vz * sd;                           // velocidade em direção à rede
+  const sw = Math.sin(u.swing * Math.PI) * u.swing;
+  mesh.position.set(pd.x, pd.y, pd.z - sd * sw * 0.08);
+  mesh.rotation.set(0, sd > 0 ? 0 : Math.PI, 0);
+  u.pivot.rotation.set(-0.28 - clamp(fwd * 0.05, -0.25, 0.4) - sw * 0.7, 0, clamp(-u.vx * sd * 0.07 - pd.x * sd * 0.35, -0.8, 0.8));
+}
+
+function render(dt, now) {
+  const t = now / 1000;
+  ballMesh.visible = blob.visible = ballGlow.visible = S.ballVisible;
+  if (S.ballVisible) {
+    const p = S.ball.p, w = S.ball.w;
+    ballMesh.position.set(p[0], p[1], p[2]);
+    const wl = Math.hypot(w[0], w[1], w[2]);
+    if (wl > 0.1 && S.phase !== 'serve') { _ax.set(w[0] / wl, w[1] / wl, w[2] / wl); _q.setFromAxisAngle(_ax, wl * dt * TIME_SCALE * 0.3); ballMesh.quaternion.premultiply(_q); }
+    ballGlow.position.copy(ballMesh.position);
+    const sp = Math.hypot(S.ball.v[0], S.ball.v[1], S.ball.v[2]);
+    const gs = 0.1 + Math.min(sp, 14) * 0.006;
+    ballGlow.scale.set(gs, gs, 1);
+    ballGlow.material.color.copy(trailColor).lerp(new THREE.Color(0xffffff), 0.55);
+    const overTable = Math.abs(p[0]) < HW && Math.abs(p[2]) < HL && p[1] > TH - 0.01;
+    const sy = overTable ? TH + 0.002 : 0.005;
+    blob.position.set(p[0], sy, p[2]);
+    const hgt = Math.max(0, p[1] - sy);
+    const s = 1 + hgt * 1.4; blob.scale.set(s, s, s);
+    blobMat.opacity = clamp(0.6 - hgt * 0.4, 0.12, 0.6);
+    if (S.phase === 'rally' || S.phase === 'point') {
+      trailPts.push([p[0], p[1], p[2]]);
+      if (trailPts.length > TRAIL_N) trailPts.shift();
+    }
+  }
+  if (!S.ballVisible) trailPts.length = 0;
+  updateTrail();
+
+  const inGame = S.phase !== 'lobby';
+  myPaddleMesh.visible = oppPaddleMesh.visible = inGame;
+  if (inGame) {
+    placePaddle(myPaddleMesh, me, S.mySide, dt);
+    placePaddle(oppPaddleMesh, S.mode === 'solo' ? bot : opp, -S.mySide, dt);
+  }
+
+  // animações do ambiente
+  led.t += dt;
+  if (led.t > 4.5) { led.t = 0; led.idx = (led.idx + 1) % LED_ADS.length; }
+  { const k = ease(Math.min(1, led.t / 0.5)); ledTex.offset.x = ((led.idx - 1 + k) / LED_ADS.length + 1) % 1; }
+  ledFlash = Math.max(0, ledFlash - dt * 1.2);
+  ledMat.emissiveIntensity = 0.8 + Math.sin(ledFlash * 18) * ledFlash * 0.9 + ledFlash * 0.9;
+  jumboMat.emissiveIntensity = 1.0 + ledFlash * 0.5;
+  hitFlash = Math.max(0, hitFlash - dt * 5);
+  hitLight.intensity = hitFlash * 3;
+  rimSpots.forEach((s, i) => { s.intensity = 16 + Math.sin(t * 0.8 + i * 1.7) * 3 + ledFlash * 22; });
+  updateCrowd(t, dt);
+  updateDust(t, dt);
+  sparks.update(dt); confetti.update(dt);
+  updateRings(dt);
+
+  composer.render(dt);
+}
+
+function onResize() {
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+}
+window.addEventListener('resize', onResize);
+scene.traverse(o => { const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []; for (const m of ms) if (m.envMapIntensity !== undefined && !m.userData.envDone) { m.envMapIntensity *= 0.18; m.userData.envDone = true; } });
+applyQuality(Q.level, true);
+drawJumbo();
+
+let last = performance.now(), acc = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  const rawDt = (now - last) / 1000;
+  const dt = Math.min(rawDt, 0.05); last = now;
+  if (S.phase === 'lobby') {
+    const a = now / 11000;
+    camera.position.set(Math.sin(a) * 5.2, 2.6 + Math.sin(a * 2) * 0.4, Math.cos(a) * 5.2);
+    camera.lookAt(0, TH, 0);
+    camera.fov = 50; camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+  } else {
+    updateCamera(dt, now);
+    updateMyPaddle(dt);
+    perfMonitor(rawDt);
+  }
+  acc += dt * TIME_SCALE;
+  let n = 0;
+  while (acc >= DT && n++ < 60) { physicsStep(DT); acc -= DT; }
+  if (S.mode === 'online') {
+    const k = Math.min(1, dt * 18);
+    opp.x = lerp(opp.x, opp.tx, k); opp.y = lerp(opp.y, opp.ty, k); opp.z = lerp(opp.z, opp.tz, k);
+  }
+  netTick(now);
+  render(dt, now);
+}
+requestAnimationFrame(frame);
+$('loading').classList.add('hidden');
+$('lobby').classList.remove('hidden');
+
+const roomParam = new URLSearchParams(location.search).get('sala');
+if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
+
+window.__pp = { S, me, bot, opp, camera, cam, perf, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality };
+</script>
+</body>
+</html>
