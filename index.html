@@ -141,7 +141,8 @@
     <div class="howto">
       <b>Como jogar:</b> mova o mouse (ou o dedo) para posicionar a raquete. Quando a bola chegar, faça um
       <b>movimento rápido para cima</b> — quanto mais rápido, mais forte a batida (rápido demais = bola fora).
-      Arrastar para o lado na hora da batida <b>direciona</b> a bola e dá efeito. Parado = bloqueio.<br>
+      Arrastar para o lado na hora da batida <b>direciona</b> a bola e dá <b>efeito lateral</b> (ela faz curva).
+      Puxar a raquete <b>para trás</b> = <b>corte</b> (backspin). Parado = bloqueio.<br>
       <b>Saque:</b> deixe a raquete atrás da bola e faça o movimento para cima.
     </div>
   </div>
@@ -208,18 +209,20 @@ function stepBall(b, dt, events, collide) {
     const yc = py + (p[1] - py) * f, xc = px + (p[0] - px) * f;
     if (Math.abs(xc) < NET_HALF && yc < NET_TOP + R && yc > TH - 0.02) {
       p[2] = Math.sign(pz || 1) * (R + 0.002);
+      const vin = Math.abs(v[2]);
       v[2] = -v[2] * 0.12; v[0] *= 0.5; v[1] *= 0.3;
       w[0] *= 0.3; w[1] *= 0.3; w[2] *= 0.3;
-      events && events.push({ t: 'net', x: xc, y: yc });
+      events && events.push({ t: 'net', x: xc, y: yc, s: vin });
     }
   }
   if (v[1] < 0 && py >= BALL_Y && p[1] < BALL_Y && Math.abs(p[0]) <= HW + R * 0.5 && Math.abs(p[2]) <= HL + R * 0.5) {
     p[1] = BALL_Y + (BALL_Y - p[1]);                   // mesa
+    const vin = -v[1];
     v[1] = -v[1] * 0.9;
     v[0] = v[0] * 0.98 + 0.18 * (-w[2] * R);
     v[2] = v[2] * 0.98 + 0.18 * (w[0] * R);
     w[0] *= 0.6; w[1] *= 0.6; w[2] *= 0.6;
-    events && events.push({ t: 'table', x: p[0], z: p[2] });
+    events && events.push({ t: 'table', x: p[0], z: p[2], s: vin });
   }
   if (p[1] < R) {                                      // chão
     p[1] = R;
@@ -242,22 +245,48 @@ function simFlight(p0, v0, w0) {
   return null;
 }
 
-/* Intenção do jogador (força, mira, efeito) -> velocidade inicial da bola */
-function makeShot(side, B, power, tx, sideSpin, serve) {
+/* Intenção do jogador (força, mira, efeito) -> velocidade inicial da bola.
+   o.inW / o.inSpeed = efeito e velocidade da bola que chegou (reação ao efeito)
+   o.chop = corte (backspin), puxando a raquete para trás */
+function makeShot(side, B, power, tx, sideSpin, serve, o = {}) {
   const pw = Math.max(0, power);
-  let depth, sh;
+  const chop = !!o.chop && !serve;
+  let depth, sh, top;
   if (serve) {
     depth = 0.55 + 0.7 * Math.min(pw, 1) + 1.1 * Math.max(0, pw - 1.2);
-    sh = 3.0 + 2.6 * Math.min(pw, 1.2);
+    sh = 2.6 + 3.0 * Math.min(pw, 1.2);
+    top = 25;
+  } else if (chop) {
+    depth = 0.4 + 0.8 * Math.min(pw, 1);
+    sh = 2.3 + 3.0 * Math.min(pw, 1);
+    top = -(50 + 90 * Math.min(pw, 1));
   } else {
     depth = 0.32 + 0.93 * Math.min(pw, 1) + 1.3 * Math.max(0, pw - 1.15);
-    sh = 3.0 + 6.0 * Math.min(pw, 1.25) / 1.25;
+    sh = 2.4 + 6.6 * Math.min(pw, 1.25) / 1.25;      // devagar = bola lenta, rápido = bola rápida
+    top = pw < 0.15 ? -20 : 40 + 100 * Math.min(pw, 1.2);
+  }
+  // Reação ao efeito que veio na bola (física do contato bola-borracha):
+  // topspin recebido faz a bola subir/espirrar, backspin faz cair, sidespin desvia de lado.
+  let netFail = false;
+  if (!serve && o.inW) {
+    const rz = side * R;
+    const lat = -o.inW[1] * rz;               // m/s de desvio lateral
+    const vert = o.inW[0] * rz;               // >0 topspin recebido, <0 backspin recebido
+    const absorb = chop ? 0.55 : clamp(0.3 + pw * 0.6, 0.3, 0.9);
+    tx += lat * 0.35 * (1 - absorb);
+    let dAdd = vert * 0.55 * (1 - absorb);
+    if (chop && vert < 0) dAdd = 0;            // cortar um corte é natural
+    if (dAdd < -0.25 && pw < 0.5) netFail = true;
+    depth = Math.max(0.15, depth + dAdd);
+    // bloqueio/toque devolve o ritmo da bola que chegou (mais rápida e mais funda)
+    const pace = (o.inSpeed || 0) * (1 - Math.min(pw, 1));
+    sh += pace * 0.5;
+    if (!chop) depth += pace * 0.05;
   }
   const T = [tx, BALL_Y, -side * depth];
   const dx = T[0] - B[0], dz = T[2] - B[2];
   const dist = Math.hypot(dx, dz) || 1;
   const dirx = dx / dist, dirz = dz / dist;
-  let top = serve ? 25 : (pw < 0.15 ? -35 : 40 + 100 * Math.min(pw, 1.2));
   if (top > 0) top *= clamp((B[1] - TH + 0.3) / 0.4, 0.25, 1);
   const w = [top * dirz, sideSpin, -top * dirx];
 
@@ -283,11 +312,20 @@ function makeShot(side, B, power, tx, sideSpin, serve) {
     if (!land || (land.netY !== null && land.netY < NET_TOP + R + 0.012)) { tf *= 1.08; continue; }
     break;
   }
+  if (netFail) {                                  // o backspin "puxou" a bola para a rede
+    const base = v[1];
+    for (let k = 0.95; k > 0.2; k -= 0.04) {
+      v[1] = base * k;
+      const l = simFlight(B, v, w);
+      if (l && l.netY !== null && l.netY < NET_TOP - 0.02) break;
+    }
+  }
   let label = 'TOP-SPIN';
   if (serve) label = 'SAQUE';
+  else if (chop) label = 'CORTE';
   else if (pw < 0.15) label = 'BLOQUEIO';
   else if (pw >= 0.95) label = 'SMASH!';
-  else if (Math.abs(sideSpin) > 22) label = 'SIDE-SPIN';
+  else if (Math.abs(sideSpin) > 30) label = 'SIDE-SPIN';
   return { v, w, label };
 }
 
@@ -604,7 +642,7 @@ trailGeo.setAttribute('color', new THREE.BufferAttribute(tCol, 3));
 const trailMesh = new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
 trailMesh.frustumCulled = false; scene.add(trailMesh);
 const trailColor = new THREE.Color(0x22ff88);
-const TRAIL_COLORS = { 'TOP-SPIN': 0x22ff88, 'SMASH!': 0xff2844, 'BLOQUEIO': 0x44aaff, 'SIDE-SPIN': 0xffcc22, 'SAQUE': 0xffffff };
+const TRAIL_COLORS = { 'TOP-SPIN': 0x22ff88, 'SMASH!': 0xff2844, 'BLOQUEIO': 0x44aaff, 'SIDE-SPIN': 0xffcc22, 'SAQUE': 0xffffff, 'CORTE': 0x40e0ff };
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
 function updateTrail() {
   const n = trailPts.length;
@@ -827,11 +865,13 @@ function inHitWindow(sd, pd) {
 function playerHit(serve) {
   const sv = swipeVel();
   const sd = S.mySide;
-  const power = Math.max(0, sv.up) / POWER_DIV;
+  const chop = !serve && sv.up < -0.55;                       // puxou a raquete para trás = corte
+  const power = chop ? clamp(-sv.up / POWER_DIV * 0.7, 0.1, 0.8) : Math.max(0, sv.up) / POWER_DIV;
   const B = [...S.ball.p];
-  const tx = B[0] * 0.3 + sd * sv.x * 0.32;
-  const sideSpin = -sd * sv.x * 14;
-  const shot = makeShot(sd, B, power, tx, sideSpin, serve);
+  const tx = B[0] * 0.3 + sd * sv.x * 0.32;                   // a bola sai para o lado do gesto
+  // raquete raspando de lado gira a bola no eixo vertical (sidespin) -> curva no ar (Magnus)
+  const sideSpin = clamp(sv.x * 30 * (serve ? 1.2 : 1), -110, 110);
+  const shot = makeShot(sd, B, power, tx, sideSpin, serve, serve ? {} : { inW: [...S.ball.w], inSpeed: Math.hypot(...S.ball.v), chop });
   applyHit(sd, B, shot, serve);
   if (S.mode === 'online') send({ t: 'hit', side: sd, p: B, v: shot.v, w: shot.w, serve, label: shot.label });
 }
@@ -845,7 +885,7 @@ function applyHit(side, B, shot, serve) {
   trailPts.length = 0;
   trailColor.setHex(TRAIL_COLORS[shot.label] || 0x22ff88);
   showLabel(shot.label);
-  sfx('hit', shot.label);
+  sfx('hit', shot.label, B, clamp(Math.hypot(...shot.v) / 11, 0.12, 1));
   fxHit(side, B, shot.label);
   if (S.mode === 'solo' && side !== sideOfBot()) botPredict();
 }
@@ -958,7 +998,9 @@ function botHit(serve) {
   if (!serve && r < 0.06) power = 1.4;
   else if (!serve && r < 0.11) tx = Math.sign(tx || 1) * 0.98;
   const B = [...S.ball.p];
-  const shot = makeShot(sd, B, power, tx, (Math.random() * 2 - 1) * 18, serve);
+  const chop = !serve && Math.random() < 0.12;
+  if (chop) power = 0.3 + Math.random() * 0.4;
+  const shot = makeShot(sd, B, power, tx, (Math.random() * 2 - 1) * 45, serve, serve ? {} : { inW: [...S.ball.w], inSpeed: Math.hypot(...S.ball.v), chop });
   applyHit(sd, B, shot, serve);
   bot.lunge = 0.22;
 }
@@ -999,9 +1041,9 @@ function physicsStep(dt) {
     const ev = [];
     stepBall(S.ball, dt, ev, true);
     for (const e of ev) {
-      if (e.t === 'table') { sfx('table'); fxBounce(e.x, e.z); }
-      else if (e.t === 'net') sfx('net');
-      else if (e.t === 'floor' && e.s > 0.4) sfx('floor');
+      if (e.t === 'table') { sfx('table', null, [e.x, TH, e.z], e.s / 4.2); fxBounce(e.x, e.z); }
+      else if (e.t === 'net') sfx('net', null, [e.x, e.y, 0], e.s / 6);
+      else if (e.t === 'floor' && e.s > 0.25) sfx('floor', null, [e.x, 0, e.z], e.s / 3.5);
     }
     if (S.phase === 'rally') {
       S.rally.t += dt;
@@ -1132,42 +1174,110 @@ function netTick(now) {
 }
 
 /* =====================================================================
-   SOM (sintetizado — sem arquivos): batidas, torcida, aplausos
+   SOM — síntese modal (sem arquivos): cada impacto é a soma das frequências
+   naturais da bola + mesa/raquete, com volume pela força do impacto,
+   estéreo pela posição da bola e reverb de ginásio.
    ===================================================================== */
-let actx = null, master = null, noiseBuf = null, crowdGain = null, cheerGain = null;
+let actx = null, master = null, sfxBus = null, noiseBuf = null, crowdGain = null, cheerGain = null;
+const IMP = {};
 let muted = store.get('pp_mute', '0') === '1';
+const _camR = new THREE.Vector3();
+
+function synthImpact(modes, o = {}) {
+  const sr = actx.sampleRate, dur = o.dur || 0.13, n = Math.floor(sr * dur);
+  const buf = actx.createBuffer(1, n, sr), d = buf.getChannelData(0);
+  const det = 1 + (Math.random() - 0.5) * 0.05;
+  for (const [f, dec, a] of modes) {
+    const ff = f * det * (1 + (Math.random() - 0.5) * 0.02), ph = Math.random() * 6.283, k = 2 * Math.PI * ff / sr;
+    for (let i = 0; i < n; i++) d[i] += a * Math.exp(-i / sr / dec) * Math.sin(k * i + ph);
+  }
+  // estalo inicial (o "clique" do contato)
+  let lp = 0; const cn = Math.floor(sr * 0.005);
+  for (let i = 0; i < cn; i++) { lp += ((Math.random() * 2 - 1) - lp) * (o.clickLP || 0.5); d[i] += lp * (o.click || 0.6) * Math.exp(-i / sr / 0.0011); }
+  const atk = Math.floor(sr * 0.0003);
+  let peak = 0;
+  for (let i = 0; i < n; i++) { if (i < atk) d[i] *= i / atk; peak = Math.max(peak, Math.abs(d[i])); }
+  const g = 0.9 / (peak || 1);
+  for (let i = 0; i < n; i++) d[i] *= g;
+  return buf;
+}
+function makeIR(sec) {
+  const sr = actx.sampleRate, n = Math.floor(sr * sec), ir = actx.createBuffer(2, n, sr);
+  for (let c = 0; c < 2; c++) {
+    const d = ir.getChannelData(c);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3.5) * Math.min(1, i / (sr * 0.008));
+    for (const [ms, a] of [[19, 0.6], [31, 0.45], [47, 0.35], [68, 0.25]]) { const j = Math.floor(sr * (ms + c * 3) / 1000); if (j < n) d[j] += a; }
+  }
+  return ir;
+}
 function ensureAudio() {
   if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
   try {
     actx = new (window.AudioContext || window.webkitAudioContext)();
-    master = actx.createGain(); master.gain.value = muted ? 0 : 0.9; master.connect(actx.destination);
+    const comp = actx.createDynamicsCompressor();
+    comp.threshold.value = -12; comp.ratio.value = 3; comp.attack.value = 0.002; comp.release.value = 0.15;
+    master = actx.createGain(); master.gain.value = muted ? 0 : 0.9;
+    master.connect(comp).connect(actx.destination);
+    // reverb de ginásio
+    const rev = actx.createConvolver(); rev.buffer = makeIR(1.7);
+    const send = actx.createGain(); send.gain.value = 0.28;
+    const ret = actx.createGain(); ret.gain.value = 0.55;
+    sfxBus = actx.createGain();
+    sfxBus.connect(master); sfxBus.connect(send).connect(rev).connect(ret).connect(master);
+    // bancos de sons (4 variações cada para não soar repetitivo)
+    const bank = (modes, o) => [0, 1, 2, 3].map(() => synthImpact(modes, o));
+    IMP.table = bank([[2350, 0.011, 1], [3950, 0.007, 0.55], [5700, 0.004, 0.3], [1180, 0.018, 0.35], [430, 0.03, 0.3], [190, 0.045, 0.2]], { click: 0.8, clickLP: 0.6 });
+    IMP.paddle = bank([[1550, 0.009, 1], [2650, 0.006, 0.5], [880, 0.016, 0.55], [480, 0.024, 0.35], [260, 0.032, 0.22]], { click: 0.5, clickLP: 0.35 });
+    IMP.smash = bank([[1750, 0.008, 1], [3100, 0.006, 0.65], [4600, 0.004, 0.4], [900, 0.014, 0.5], [420, 0.022, 0.38]], { click: 1, clickLP: 0.75 });
+    IMP.floor = bank([[2700, 0.01, 0.9], [4300, 0.006, 0.45], [1300, 0.014, 0.3], [650, 0.02, 0.2]], { click: 0.6, clickLP: 0.5 });
+    IMP.net = bank([[320, 0.035, 0.6], [760, 0.02, 0.4], [1500, 0.01, 0.25]], { click: 0.4, clickLP: 0.15, dur: 0.16 });
+    // ruído base (torcida, aplausos, "vush")
     noiseBuf = actx.createBuffer(1, actx.sampleRate * 3, actx.sampleRate);
     const d = noiseBuf.getChannelData(0);
     let last = 0;
     for (let i = 0; i < d.length; i++) { const w = Math.random() * 2 - 1; last = last * 0.6 + w * 0.4; d[i] = last; }
-    // murmúrio da torcida
     const amb = actx.createBufferSource(); amb.buffer = noiseBuf; amb.loop = true;
     const lp = actx.createBiquadFilter(); lp.type = 'bandpass'; lp.frequency.value = 520; lp.Q.value = 0.6;
     crowdGain = actx.createGain(); crowdGain.gain.value = 0.05;
     amb.connect(lp).connect(crowdGain).connect(master); amb.start();
-    // aplausos (ruído agudo modulado)
     const ap = actx.createBufferSource(); ap.buffer = noiseBuf; ap.loop = true; ap.playbackRate.value = 1.7;
     const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1400;
     cheerGain = actx.createGain(); cheerGain.gain.value = 0;
     ap.connect(hp).connect(cheerGain).connect(master); ap.start();
   } catch (e) { actx = null; }
 }
-function pock(freq, vol, dur, q = 5) {
+// toca um impacto: força 0..1 controla volume e brilho; posição controla estéreo e distância
+function playImpact(kind, pos, strength) {
+  if (!actx || !IMP[kind]) return;
+  const set = IMP[kind], buf = set[(Math.random() * set.length) | 0];
+  const st = clamp(strength, 0.03, 1);
+  const src = actx.createBufferSource(); src.buffer = buf;
+  src.playbackRate.value = 0.96 + Math.random() * 0.08 + st * 0.05;
+  const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.4;
+  let cutoff = 1800 + st * st * 14000, vol = 0.08 + st * 0.92, pan = 0;
+  if (pos) {
+    const dx = pos[0] - camera.position.x, dy = pos[1] - camera.position.y, dz = pos[2] - camera.position.z;
+    const dist = Math.hypot(dx, dy, dz);
+    vol *= 1.7 / (1 + 0.5 * dist);
+    cutoff *= clamp(1.35 - dist * 0.11, 0.4, 1);
+    _camR.setFromMatrixColumn(camera.matrixWorld, 0);
+    pan = clamp((dx * _camR.x + dz * _camR.z) / 1.8, -0.85, 0.85);
+  }
+  lp.frequency.value = Math.min(cutoff, 18000);
+  const g = actx.createGain(); g.gain.value = vol;
+  src.connect(lp).connect(g);
+  if (actx.createStereoPanner) { const p = actx.createStereoPanner(); p.pan.value = pan; g.connect(p).connect(sfxBus); }
+  else g.connect(sfxBus);
+  src.start();
+}
+function whoosh(pos, strength) {
   if (!actx) return;
   const t = actx.currentTime;
-  const src = actx.createBufferSource(); src.buffer = noiseBuf; src.playbackRate.value = 2;
-  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = q;
-  const g = actx.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(bp).connect(g).connect(master); src.start(t, Math.random() * 2); src.stop(t + dur + 0.02);
-  const o = actx.createOscillator(), og = actx.createGain();
-  o.type = 'sine'; o.frequency.setValueAtTime(freq * 0.55, t); o.frequency.exponentialRampToValueAtTime(freq * 0.35, t + dur);
-  og.gain.setValueAtTime(vol * 0.5, t); og.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.9);
-  o.connect(og).connect(master); o.start(t); o.stop(t + dur + 0.02);
+  const src = actx.createBufferSource(); src.buffer = noiseBuf; src.playbackRate.value = 1.3;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.2;
+  bp.frequency.setValueAtTime(500, t); bp.frequency.exponentialRampToValueAtTime(2200, t + 0.12);
+  const g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12 * strength, t + 0.06); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+  src.connect(bp).connect(g).connect(sfxBus); src.start(t, Math.random() * 2); src.stop(t + 0.2);
 }
 function tone(freq, dur, vol, type = 'triangle', delay = 0) {
   if (!actx) return;
@@ -1184,14 +1294,18 @@ function cheer(amount) {
   crowdGain.gain.setTargetAtTime(0.05 + 0.22 * amount, t, 0.08); crowdGain.gain.setTargetAtTime(0.05, t + 0.7, 0.8);
   cheerGain.gain.setTargetAtTime(0.16 * amount, t + 0.05, 0.1); cheerGain.gain.setTargetAtTime(0, t + 0.9, 0.7);
 }
-function sfx(k, label) {
+function sfx(k, label, pos, s = 0.5) {
   if (!actx) return;
-  if (k === 'hit') { const smash = label === 'SMASH!'; pock(smash ? 2100 : 2600, smash ? 0.55 : 0.4, smash ? 0.07 : 0.05); }
-  else if (k === 'table') pock(1700, 0.32, 0.045, 7);
-  else if (k === 'net') pock(400, 0.25, 0.08, 2);
-  else if (k === 'floor') pock(1200, 0.12, 0.04, 6);
-  else if (k === 'win') { tone(660, 0.12, 0.08); tone(990, 0.2, 0.08, 'triangle', 0.1); }
-  else if (k === 'lose') { tone(440, 0.14, 0.06); tone(330, 0.2, 0.06, 'triangle', 0.12); }
+  if (k === 'hit') {
+    const smash = label === 'SMASH!';
+    playImpact(smash ? 'smash' : 'paddle', pos, s);
+    if (s > 0.55) whoosh(pos, s);
+  }
+  else if (k === 'table') playImpact('table', pos, s);
+  else if (k === 'net') playImpact('net', pos, Math.max(0.25, s));
+  else if (k === 'floor') playImpact('floor', pos, s * 0.6);
+  else if (k === 'win') { tone(660, 0.12, 0.04); tone(990, 0.2, 0.04, 'triangle', 0.1); }
+  else if (k === 'lose') { tone(440, 0.14, 0.03); tone(330, 0.2, 0.03, 'triangle', 0.12); }
 }
 function setMuted(v) {
   muted = v; store.set('pp_mute', v ? '1' : '0');
@@ -1533,7 +1647,7 @@ $('lobby').classList.remove('hidden');
 const roomParam = new URLSearchParams(location.search).get('sala');
 if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
 
-window.__pp = { S, me, bot, opp, camera, cam, perf, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality };
+window.__pp = { S, me, bot, opp, camera, cam, perf, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), playImpact, ensureAudio }) };
 </script>
 </body>
 </html>

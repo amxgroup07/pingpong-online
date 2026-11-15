@@ -37,8 +37,16 @@ npx vercel --prod # publica em produção
 3. Partida até 11, com 2 de vantagem; o saque troca a cada 2 pontos (a cada 1 a partir de 10×10).
 
 **Controles:** mova o mouse/dedo para posicionar a raquete. Na hora que a bola chega, faça um movimento
-rápido **para cima**. Mais rápido = mais forte (rápido demais = bola longa). Mexer para o lado ao bater
-direciona a bola e dá efeito. Raquete parada = bloqueio curto.
+rápido **para cima**. Mais rápido = bola mais rápida e funda (rápido demais = bola longa). Mexer para o lado
+ao bater direciona a bola e dá **efeito lateral** (curva no ar). Puxar a raquete **para trás** = **corte**
+(backspin). Raquete parada = bloqueio, que devolve o ritmo da bola que veio.
+
+**Física de efeito:** o efeito que vem na bola muda a sua devolução, como no jogo real. Bloquear um topspin
+forte faz a bola espirrar mais longa, bloquear um corte joga a bola na rede (é preciso bater forte para cima
+ou cortar de volta) e o efeito lateral desvia a bola para o lado.
+
+**Som:** gerado no navegador por síntese modal (frequências da bola, mesa e raquete), com volume pela
+força do impacto, estéreo pela posição da bola e reverb de ginásio.
 
 ## Testar localmente
 Precisa abrir por um servidor (não abra o arquivo direto com duplo clique):
