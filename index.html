@@ -183,6 +183,12 @@
   </div>
 </div>
 
-<script type="module" src="game.js" onerror="document.getElementById('loading').textContent='Não consegui carregar o jogo. Recarregue a página.'"></script>
+<script type="module">
+  // a versão vem do version.txt (sem cache): cada atualização tem um endereço novo e chega na hora
+  let v = '';
+  try { const r = await fetch('version.txt', { cache: 'no-store' }); if (r.ok) v = (await r.text()).trim(); } catch (e) { }
+  import(/^[0-9a-f]{40}$/.test(v) ? `/v/${v}/game.js` : './game.js')
+    .catch(() => { document.getElementById('loading').textContent = 'Não consegui carregar o jogo. Recarregue a página.'; });
+</script>
 </body>
 </html>

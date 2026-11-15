@@ -1,5 +1,9 @@
 {
   "rewrites": [
+    { "source": "/v/:sha/game.js", "destination": "https://cdn.jsdelivr.net/gh/amxgroup07/pingpong-online@:sha/game.js" },
     { "source": "/game.js", "destination": "https://cdn.jsdelivr.net/gh/amxgroup07/pingpong-online@5b5c643dab19c41226614a94d2d2c81882b8a246/game.js" }
+  ],
+  "headers": [
+    { "source": "/version.txt", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
   ]
 }
