@@ -48,6 +48,17 @@ ou cortar de volta) e o efeito lateral desvia a bola para o lado.
 **Som:** gerado no navegador por síntese modal (frequências da bola, mesa e raquete), com volume pela
 força do impacto, estéreo pela posição da bola e reverb de ginásio.
 
+## Chat rápido (estilo Rocket League)
+Durante o jogo, aperte **1 a 4** para escolher a categoria e de novo **1 a 4** para a frase
+(no celular, use o botão 💬). Categorias: Elogios, Reações, Provocações e Geral.
+A mensagem aparece para o seu amigo na hora; no treino, a CPU também responde. Mandar mais de
+4 mensagens em 4 segundos desativa o chat por 3 segundos (anti-spam).
+
+## Torcida
+A torcida é sintetizada: murmúrio constante em estéreo, vozes que comemoram ("aaah!") ou lamentam
+("óóóh" quando a bola vai na rede ou sai), aplausos com palmas individuais, assobios nos pontos
+grandes, palmas ritmadas no match point e mais agitação nos rallies longos.
+
 ## Testar localmente
 Precisa abrir por um servidor (não abra o arquivo direto com duplo clique):
 ```bash

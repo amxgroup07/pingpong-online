@@ -12,7 +12,8 @@
   .hidden { display: none !important; }
 
   /* ---------- HUD estilo transmissão ---------- */
-  #hud { position: fixed; inset: 0; pointer-events: none; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
+  #lobby { z-index: 30; } #over { z-index: 10; }
   #board { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 34px rgba(0,0,0,.55); font-weight: 800; }
   .team { display: flex; align-items: center; gap: 10px; height: 48px; background: rgba(10,5,9,.8); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
   .team.me { padding-left: 14px; border-left: 4px solid #9a5cff; }
@@ -45,9 +46,27 @@
   .hbtns { position: absolute; bottom: 10px; right: 12px; display: flex; gap: 6px; pointer-events: auto; }
   .hbtns button { background: rgba(0,0,0,.5); color: #fff; border: 1px solid rgba(255,255,255,.22); border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer; }
 
+  /* ---------- Chat rápido ---------- */
+  #chatFeed { position: absolute; top: 14px; left: 14px; width: min(260px, 29vw); display: flex; flex-direction: column; gap: 6px; }
+  .cmsg { background: rgba(0,0,0,.6); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); padding: 7px 11px; border-radius: 8px; font-size: 14px; font-weight: 700; border-left: 3px solid #9a5cff; animation: cin .25s ease-out; transition: opacity .6s; }
+  .cmsg.op { border-left-color: #ff3355; }
+  .cmsg.sys { border-left-color: #ffd34d; font-weight: 600; font-size: 12px; opacity: .9; }
+  .cmsg .who { font-size: 11px; letter-spacing: .12em; margin-right: 7px; font-weight: 900; }
+  .cmsg.me .who { color: #c9a8ff; } .cmsg.op .who { color: #ff8a9c; }
+  .cmsg.fade { opacity: 0; }
+  @keyframes cin { from { transform: translateX(-14px); opacity: 0; } }
+  #qc { position: absolute; left: 14px; bottom: 54px; min-width: 240px; background: rgba(10,5,9,.9); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 10px; pointer-events: auto; animation: cin .18s ease-out; }
+  #qc .qt { font-size: 11px; letter-spacing: .18em; opacity: .6; margin: 2px 4px 6px; font-weight: 900; }
+  #qc button { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; background: rgba(255,255,255,.05); border: 0; color: #fff; padding: 9px 10px; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 4px; }
+  #qc button:hover { background: rgba(255,79,139,.25); }
+  #qc kbd { display: inline-flex; flex: none; width: 22px; height: 22px; align-items: center; justify-content: center; border-radius: 5px; background: #ff3d7f; font-size: 12px; font-family: inherit; font-weight: 900; }
+  #qcHint { position: absolute; left: 14px; bottom: 34px; font-size: 11px; opacity: .5; letter-spacing: .04em; }
+  @media (pointer: coarse) { #qcHint { display: none; } }
+  @media (max-width: 760px) { #chatFeed { top: 126px; width: 46vw; } .cmsg { font-size: 12px; padding: 6px 9px; } }
+
   /* ---------- Telas ---------- */
-  .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(90,8,40,.35), rgba(5,1,4,.85)); padding: 16px; overflow-y: auto; }
-  .card { width: 100%; max-width: 420px; background: rgba(16,6,12,.82); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,.09); border-radius: 20px; padding: 26px 22px; box-shadow: 0 24px 70px rgba(0,0,0,.6); text-align: center; }
+  .screen { position: fixed; inset: 0; display: flex; align-items: flex-start; justify-content: center; background: radial-gradient(ellipse at center, rgba(90,8,40,.35), rgba(5,1,4,.85)); padding: 16px; overflow-y: auto; }
+  .card { margin: auto; width: 100%; max-width: 420px; background: rgba(16,6,12,.82); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,.09); border-radius: 20px; padding: 26px 22px; box-shadow: 0 24px 70px rgba(0,0,0,.6); text-align: center; }
   h1 { font-size: 32px; font-weight: 900; font-style: italic; letter-spacing: .03em; line-height: 1; }
   h1 span { display: block; font-size: 14px; font-style: normal; letter-spacing: .55em; color: #ff4f8b; margin-top: 8px; text-shadow: 0 0 14px rgba(255,79,139,.6); }
   h2 { font-size: 32px; font-weight: 900; margin-bottom: 6px; }
@@ -98,8 +117,12 @@
   <div id="msg"></div>
   <div id="streak"><div class="fire">🔥</div><div class="n" id="streakN">0</div><div class="t">SEQUÊNCIA</div></div>
   <div id="toast"></div>
+  <div id="chatFeed"></div>
+  <div id="qc" class="hidden"><div class="qt" id="qcTitle">CHAT RÁPIDO</div><div id="qcList"></div></div>
+  <div id="qcHint">Chat rápido: teclas 1 a 4</div>
   <div id="ping"></div>
   <div class="hbtns">
+    <button id="btnChat" title="Chat rápido">💬</button>
     <button id="btnSound" title="Som">🔊</button>
     <button id="btnQuality" title="Qualidade gráfica">HD</button>
     <button id="quit">Sair</button>
@@ -143,7 +166,8 @@
       <b>movimento rápido para cima</b> — quanto mais rápido, mais forte a batida (rápido demais = bola fora).
       Arrastar para o lado na hora da batida <b>direciona</b> a bola e dá <b>efeito lateral</b> (ela faz curva).
       Puxar a raquete <b>para trás</b> = <b>corte</b> (backspin). Parado = bloqueio.<br>
-      <b>Saque:</b> deixe a raquete atrás da bola e faça o movimento para cima.
+      <b>Saque:</b> deixe a raquete atrás da bola e faça o movimento para cima.<br>
+      <b>Chat rápido:</b> teclas <b>1 a 4</b> (categoria e depois a frase) ou o botão 💬.
     </div>
   </div>
 </div>
@@ -926,7 +950,9 @@ function onPoint(winner, reason) {
   if (rally >= 8) sub += ` · rally de ${rally}!`;
   showMsg(mine ? 'PONTO SEU!' : `Ponto ${who}`, sub);
   sfx(mine ? 'win' : 'lose');
-  fxPoint(mine, rally);
+  const winnerShot = S.rally.hitter === winner ? S.lastLabel : null;
+  fxPoint(mine, rally, reason, winnerShot);
+  if (S.mode === 'solo') botOnPoint(mine, reason, rally, winnerShot);
   bumpScore(mine ? 'scoreL' : 'scoreR');
   S.streak = 0;
   updateHud();
@@ -956,6 +982,7 @@ function nextPoint() {
   bot.served = false; bot.serveAt = 0.9 + Math.random() * 0.8;
   trailPts.length = 0;
   if (S.server === S.mySide) showMsg('Seu saque', 'raquete atrás da bola + movimento para cima');
+  if (matchPointFor()) startRhythm();
   updateHud();
 }
 
@@ -1161,6 +1188,7 @@ function onMsg(m) {
       break;
     }
     case 'rematch': resetMatch(-S.firstServer); break;
+    case 'chat': recvChat(m); break;
   }
 }
 function netTick(now) {
@@ -1178,7 +1206,8 @@ function netTick(now) {
    naturais da bola + mesa/raquete, com volume pela força do impacto,
    estéreo pela posição da bola e reverb de ginásio.
    ===================================================================== */
-let actx = null, master = null, sfxBus = null, noiseBuf = null, crowdGain = null, cheerGain = null;
+let actx = null, master = null, sfxBus = null, noiseBuf = null;
+let crowdBus = null, murmurGain = null, applauseGain = null, clapGroupBuf = null, rhythmTimer = 0;
 const IMP = {};
 let muted = store.get('pp_mute', '0') === '1';
 const _camR = new THREE.Vector3();
@@ -1224,6 +1253,10 @@ function ensureAudio() {
     const ret = actx.createGain(); ret.gain.value = 0.55;
     sfxBus = actx.createGain();
     sfxBus.connect(master); sfxBus.connect(send).connect(rev).connect(ret).connect(master);
+    // barramento da torcida (com bastante eco de ginásio)
+    crowdBus = actx.createGain(); crowdBus.gain.value = 1;
+    const crowdSend = actx.createGain(); crowdSend.gain.value = 0.5;
+    crowdBus.connect(master); crowdBus.connect(crowdSend).connect(rev);
     // bancos de sons (4 variações cada para não soar repetitivo)
     const bank = (modes, o) => [0, 1, 2, 3].map(() => synthImpact(modes, o));
     IMP.table = bank([[2350, 0.011, 1], [3950, 0.007, 0.55], [5700, 0.004, 0.3], [1180, 0.018, 0.35], [430, 0.03, 0.3], [190, 0.045, 0.2]], { click: 0.8, clickLP: 0.6 });
@@ -1236,15 +1269,132 @@ function ensureAudio() {
     const d = noiseBuf.getChannelData(0);
     let last = 0;
     for (let i = 0; i < d.length; i++) { const w = Math.random() * 2 - 1; last = last * 0.6 + w * 0.4; d[i] = last; }
-    const amb = actx.createBufferSource(); amb.buffer = noiseBuf; amb.loop = true;
-    const lp = actx.createBiquadFilter(); lp.type = 'bandpass'; lp.frequency.value = 520; lp.Q.value = 0.6;
-    crowdGain = actx.createGain(); crowdGain.gain.value = 0.05;
-    amb.connect(lp).connect(crowdGain).connect(master); amb.start();
-    const ap = actx.createBufferSource(); ap.buffer = noiseBuf; ap.loop = true; ap.playbackRate.value = 1.7;
-    const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1400;
-    cheerGain = actx.createGain(); cheerGain.gain.value = 0;
-    ap.connect(hp).connect(cheerGain).connect(master); ap.start();
+    // murmúrio constante (duas "metades" da arquibancada em estéreo, com variação lenta)
+    murmurGain = actx.createGain(); murmurGain.gain.value = 0.07; murmurGain.connect(crowdBus);
+    for (const side of [-0.65, 0.65]) {
+      const mur = actx.createBufferSource(); mur.buffer = noiseBuf; mur.loop = true;
+      const pn = actx.createStereoPanner(); pn.pan.value = side; pn.connect(murmurGain);
+      for (const [fr, q, lf] of [[380, 0.9, 0.13], [850, 1.1, 0.21], [1600, 1.4, 0.31]]) {
+        const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = fr * (1 + side * 0.05); bp.Q.value = q;
+        const g = actx.createGain(); g.gain.value = 0.55;
+        const lfo = actx.createOscillator(); lfo.frequency.value = lf * (1 + Math.random() * 0.4);
+        const lg = actx.createGain(); lg.gain.value = 0.35; lfo.connect(lg).connect(g.gain); lfo.start();
+        mur.connect(bp).connect(g).connect(pn);
+      }
+      mur.start(0, Math.random() * 2);
+    }
+    // aplausos: centenas de palmas individuais com timbre e posição aleatórios
+    const apl = actx.createBufferSource(); apl.buffer = makeClaps(3, 480, 3, true); apl.loop = true;
+    const abp = actx.createBiquadFilter(); abp.type = 'bandpass'; abp.frequency.value = 1700; abp.Q.value = 0.45;
+    applauseGain = actx.createGain(); applauseGain.gain.value = 0.0001;
+    apl.connect(abp).connect(applauseGain).connect(crowdBus); apl.start();
+    clapGroupBuf = makeClaps(0.25, 70, 0.045, false);
   } catch (e) { actx = null; }
+}
+// gera palmas: cada palma é um estalo curto de ruído com timbre, força e lado aleatórios
+function makeClaps(sec, count, spread, wrap) {
+  const sr = actx.sampleRate, n = Math.floor(sr * sec), buf = actx.createBuffer(2, n, sr);
+  const L = buf.getChannelData(0), Rr = buf.getChannelData(1);
+  for (let k = 0; k < count; k++) {
+    const t0 = Math.floor(Math.random() * spread * sr), amp = 0.25 + Math.random() * 0.75;
+    const dec = (0.003 + Math.random() * 0.009) * sr, len = Math.floor(dec * 6), a = 0.25 + Math.random() * 0.6;
+    const pan = Math.random(); let lp = 0;
+    for (let j = 0; j < len; j++) {
+      let idx = t0 + j; if (idx >= n) { if (!wrap) break; idx -= n; }
+      const w = Math.random() * 2 - 1; lp += (w - lp) * a;
+      const v = (w - lp * 0.7) * amp * Math.exp(-j / dec) * Math.min(1, j / 12);
+      L[idx] += v * (1 - pan); Rr[idx] += v * pan;
+    }
+  }
+  let peak = 0; for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(L[i]), Math.abs(Rr[i]));
+  const g = 0.9 / (peak || 1); for (let i = 0; i < n; i++) { L[i] *= g; Rr[i] *= g; }
+  return buf;
+}
+// vozes da torcida: dezenas de "pessoas" (osciladores com tom e vibrato próprios) passando
+// por filtros de vogal — "aaah!" sobe na comemoração, "óóóh" cai quando a bola sai/vai na rede
+function crowdVoice(kind, amount) {
+  if (!actx) return;
+  const t = actx.currentTime, ohh = kind === 'ohh';
+  const dur = ohh ? 1.5 : 1.4 + amount * 1.2;
+  const out = actx.createGain();
+  out.gain.setValueAtTime(0.0001, t);
+  out.gain.exponentialRampToValueAtTime(0.03 + 0.11 * amount, t + (ohh ? 0.14 : 0.2));
+  out.gain.setTargetAtTime(0.0001, t + dur * 0.45, dur * 0.22);
+  out.connect(crowdBus);
+  const F = ohh ? [[430, 6, 1], [780, 7, 0.65], [2500, 10, 0.25]] : [[760, 5, 1], [1180, 6, 0.7], [2550, 9, 0.35]];
+  const filters = F.map(([fr, q, a]) => {
+    const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = fr; bp.Q.value = q;
+    bp.frequency.setValueAtTime(fr * (ohh ? 1.05 : 0.95), t); bp.frequency.linearRampToValueAtTime(fr * (ohh ? 0.9 : 1.06), t + dur * 0.7);
+    const g = actx.createGain(); g.gain.value = a; bp.connect(g).connect(out); return bp;
+  });
+  const N = 18;
+  for (let i = 0; i < N; i++) {
+    const o = actx.createOscillator(); o.type = 'sawtooth';
+    const base = Math.random() < 0.55 ? 105 + Math.random() * 90 : 190 + Math.random() * 140;   // vozes graves e agudas
+    const st = t + Math.random() * 0.15;
+    o.frequency.setValueAtTime(base * (ohh ? 1.12 : 0.9), st);
+    o.frequency.linearRampToValueAtTime(base * (ohh ? 0.76 : 1.15), st + dur * 0.55);
+    o.frequency.linearRampToValueAtTime(base * (ohh ? 0.7 : 1.02), st + dur);
+    const vib = actx.createOscillator(); vib.frequency.value = 4 + Math.random() * 3.5;
+    const vg = actx.createGain(); vg.gain.value = base * 0.025; vib.connect(vg).connect(o.frequency);
+    const og = actx.createGain(); og.gain.value = (0.6 + Math.random() * 0.8) / N;
+    const pn = actx.createStereoPanner(); pn.pan.value = Math.random() * 2 - 1;
+    o.connect(og).connect(pn); filters.forEach(fl => pn.connect(fl));
+    o.start(st); vib.start(st); o.stop(t + dur + 0.3); vib.stop(t + dur + 0.3);
+  }
+  const ns = actx.createBufferSource(); ns.buffer = noiseBuf;
+  const ng = actx.createGain(); ng.gain.value = 0.4; ns.connect(ng); filters.forEach(fl => ng.connect(fl));
+  ns.start(t, Math.random() * 2); ns.stop(t + dur + 0.3);
+}
+function applause(amount, length, delay = 0) {
+  if (!actx) return;
+  const t = actx.currentTime + delay, g = applauseGain.gain;
+  g.cancelScheduledValues(t); g.setTargetAtTime(0.32 * amount, t, 0.12); g.setTargetAtTime(0.0001, t + 0.35 + length, 0.35 + length * 0.3);
+}
+function whistle(delay = 0) {
+  if (!actx) return;
+  const t = actx.currentTime + delay, f = 2200 + Math.random() * 1000, len = 0.35 + Math.random() * 0.4;
+  const o = actx.createOscillator(); o.type = 'sine';
+  o.frequency.setValueAtTime(f * 0.82, t); o.frequency.linearRampToValueAtTime(f, t + 0.1);
+  o.frequency.setValueAtTime(f, t + len); o.frequency.linearRampToValueAtTime(f * 0.78, t + len + 0.15);
+  const lfo = actx.createOscillator(); lfo.frequency.value = 5 + Math.random() * 3;
+  const lg = actx.createGain(); lg.gain.value = 35; lfo.connect(lg).connect(o.frequency);
+  const g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.03, t + 0.05);
+  g.gain.setValueAtTime(0.03, t + len); g.gain.exponentialRampToValueAtTime(0.0001, t + len + 0.18);
+  const p = actx.createStereoPanner(); p.pan.value = Math.random() * 1.6 - 0.8;
+  o.connect(g).connect(p).connect(crowdBus); o.start(t); lfo.start(t); o.stop(t + len + 0.25); lfo.stop(t + len + 0.25);
+}
+function clapGroup() {
+  if (!actx) return;
+  const src = actx.createBufferSource(); src.buffer = clapGroupBuf; src.playbackRate.value = 0.97 + Math.random() * 0.06;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1600; bp.Q.value = 0.5;
+  const g = actx.createGain(); g.gain.value = 0.42;
+  src.connect(bp).connect(g).connect(crowdBus); src.start();
+}
+function setTension(level) {           // torcida fica mais agitada em rally longo
+  if (!actx) return;
+  murmurGain.gain.setTargetAtTime(0.07 + clamp(level, 0, 1) * 0.11, actx.currentTime, 0.4);
+}
+function startRhythm() {               // palmas ritmadas no match point
+  stopRhythm();
+  if (!actx) return;
+  let n = 0;
+  rhythmTimer = setInterval(() => { if (S.phase !== 'serve' || ++n > 14) { stopRhythm(); return; } clapGroup(); }, 520);
+}
+function stopRhythm() { clearInterval(rhythmTimer); rhythmTimer = 0; }
+// reação da torcida a cada lance
+function crowdReact(type, amount = 0.6) {
+  if (!actx) return;
+  if (type === 'point') { crowdVoice('yeah', amount); applause(amount, 1.1 + amount * 1.6); if (amount > 0.85) { whistle(0.25); whistle(0.6); } }
+  else if (type === 'ohh') { crowdVoice('ohh', 0.75); applause(0.35, 1.0, 0.7); }
+  else if (type === 'wow') crowdVoice('yeah', 0.35);
+  else if (type === 'start') applause(0.6, 1.6);
+  else if (type === 'win') { crowdVoice('yeah', 1); applause(1, 5); for (let i = 0; i < 5; i++) whistle(0.2 + i * 0.35 + Math.random() * 0.2); setTimeout(() => crowdVoice('yeah', 0.8), 1600); }
+  setTension(0);
+}
+function sfxChat(who) {
+  if (!actx || who === 'sys') return;
+  tone(who === 'op' ? 740 : 988, 0.08, 0.05, 'sine'); tone(who === 'op' ? 988 : 1318, 0.1, 0.04, 'sine', 0.06);
 }
 // toca um impacto: força 0..1 controla volume e brilho; posição controla estéreo e distância
 function playImpact(kind, pos, strength) {
@@ -1287,13 +1437,6 @@ function tone(freq, dur, vol, type = 'triangle', delay = 0) {
   g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
   o.connect(g).connect(master); o.start(t0); o.stop(t0 + dur + 0.02);
 }
-function cheer(amount) {
-  if (!actx) return;
-  const t = actx.currentTime;
-  crowdGain.gain.cancelScheduledValues(t); cheerGain.gain.cancelScheduledValues(t);
-  crowdGain.gain.setTargetAtTime(0.05 + 0.22 * amount, t, 0.08); crowdGain.gain.setTargetAtTime(0.05, t + 0.7, 0.8);
-  cheerGain.gain.setTargetAtTime(0.16 * amount, t + 0.05, 0.1); cheerGain.gain.setTargetAtTime(0, t + 0.9, 0.7);
-}
 function sfx(k, label, pos, s = 0.5) {
   if (!actx) return;
   if (k === 'hit') {
@@ -1325,20 +1468,23 @@ function fxHit(side, B, label) {
   sparks.emit(smash ? 42 : 18, B[0], B[1], B[2], c, smash ? 3.2 : 1.6, { life: smash ? 0.5 : 0.35, intensity: 2.5, grav: 2, drag: 3 });
   hitLight.position.set(B[0], B[1] + 0.1, B[2]); hitLight.color.setHex(c); hitFlash = smash ? 1 : 0.55;
   const near = side === S.mySide;
-  if (smash) { cam.shake = near ? 0.6 : 1; cam.fovKick = near ? -2 : 3; crowd.excite = Math.min(1, crowd.excite + 0.35); cheer(0.35); }
+  if (smash) { cam.shake = near ? 0.6 : 1; cam.fovKick = near ? -2 : 3; crowd.excite = Math.min(1, crowd.excite + 0.35); crowdReact('wow'); }
   else if (near) cam.shake = Math.max(cam.shake, 0.15);
   const pm = side === S.mySide ? myPaddleMesh : oppPaddleMesh; pm.userData.swing = 1;
   crowd.base = clamp(0.08 + S.streak * 0.04, 0.08, 0.6);
+  if (S.streak >= 5) setTension((S.streak - 4) / 10);
+  stopRhythm();
   updateStreak();
 }
 function fxBounce(x, z) {
   spawnRing(x, TH + 0.003, z, trailColor);
   sparks.emit(5, x, TH + 0.01, z, trailColor, 0.6, { life: 0.25, intensity: 1.6, grav: 1, upOnly: true });
 }
-function fxPoint(mine, rally) {
-  const amount = clamp(0.45 + rally * 0.05, 0.45, 1);
+function fxPoint(mine, rally, reason, winnerShot) {
+  let amount = clamp(0.45 + rally * 0.05, 0.45, 1);
+  if (winnerShot === 'SMASH!') amount = Math.max(amount, 0.9);
   crowd.excite = Math.min(1, 0.55 + amount * 0.45); crowd.base = 0.08;
-  cheer(amount);
+  if (reason === 'net' || reason === 'out') crowdReact('ohh'); else crowdReact('point', amount);
   ledFlash = 1;
   const p = S.ball.p;
   sparks.emit(30, p[0], Math.max(p[1], TH), p[2], mine ? 0x9a5cff : 0xff3355, 2.2, { life: 0.7, intensity: 2, grav: 2 });
@@ -1346,8 +1492,7 @@ function fxPoint(mine, rally) {
 }
 function fxWin(mine) {
   confetti.emit(260, 0, 4.2, 0, 0xffffff, 1.6, { rainbow: true, life: 4.5, grav: 0.9, drag: 1.4, spread: 6 });
-  crowd.excite = 1; cheer(1);
-  setTimeout(() => cheer(0.8), 1200);
+  crowd.excite = 1; crowdReact('win');
 }
 
 /* =====================================================================
@@ -1425,6 +1570,90 @@ function showOver() {
   fxWin(won);
   updateHud();
 }
+
+/* =====================================================================
+   CHAT RÁPIDO (estilo Rocket League): 1º número = categoria, 2º = frase
+   ===================================================================== */
+const QC = [
+  { n: 'Elogios', m: ['Essa foi boa!', 'Que defesa!', 'Belo saque!', 'Que smash! 🔥'] },
+  { n: 'Reações', m: ['Uau!', 'Por pouco!', 'Nããão! 😱', 'Calculado. 😎'] },
+  { n: 'Provocações', m: ['Tá fácil hein 😏', 'Cadê o efeito?', 'Vai chorar? 😭', 'Essa nem doeu'] },
+  { n: 'Geral', m: ['Boa sorte!', 'Bom jogo! 🤝', 'Revanche?', 'Foi mal!'] },
+];
+const qc = { mode: 'closed', cat: 0, timer: 0, sent: [], mutedUntil: 0 };
+function qcRender() {
+  const el = $('qc');
+  clearTimeout(qc.timer);
+  if (qc.mode === 'closed') { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const items = qc.mode === 'cats' ? QC.map(c => c.n) : QC[qc.cat].m;
+  $('qcTitle').textContent = qc.mode === 'cats' ? 'CHAT RÁPIDO' : QC[qc.cat].n.toUpperCase();
+  const list = $('qcList'); list.textContent = '';
+  items.forEach((t, i) => {
+    const b = document.createElement('button'); b.dataset.i = i;
+    const k = document.createElement('kbd'); k.textContent = i + 1;
+    b.append(k, document.createTextNode(t)); list.appendChild(b);
+  });
+  qc.timer = setTimeout(() => { qc.mode = 'closed'; qcRender(); }, 4500);
+}
+function qcPick(i) {
+  if (qc.mode === 'msgs') { sendChat(qc.cat, i); qc.mode = 'closed'; }
+  else { qc.mode = 'msgs'; qc.cat = i; }
+  qcRender();
+}
+function addChat(who, text) {
+  const feed = $('chatFeed'), d = document.createElement('div');
+  d.className = 'cmsg ' + who;
+  const name = who === 'me' ? 'VOCÊ' : who === 'op' ? (S.mode === 'solo' ? 'CPU' : 'AMIGO') : '';
+  if (name) { const w = document.createElement('span'); w.className = 'who'; w.textContent = name; d.appendChild(w); }
+  d.appendChild(document.createTextNode(text));
+  feed.appendChild(d);
+  while (feed.children.length > 5) feed.firstChild.remove();
+  setTimeout(() => d.classList.add('fade'), 5000); setTimeout(() => d.remove(), 5700);
+  sfxChat(who);
+}
+function sendChat(c, i) {
+  const now = performance.now();
+  if (now < qc.mutedUntil) { addChat('sys', `Chat desativado por ${Math.ceil((qc.mutedUntil - now) / 1000)} s`); return; }
+  qc.sent = qc.sent.filter(t => now - t < 4000); qc.sent.push(now);
+  if (qc.sent.length > 4) { qc.mutedUntil = now + 3000; addChat('sys', 'Chat desativado por 3 s'); return; }
+  addChat('me', QC[c].m[i]);
+  if (S.mode === 'online') send({ t: 'chat', c, i });
+  else botChatReply(c, i);
+}
+function recvChat(m) {
+  const c = m.c | 0, i = m.i | 0;
+  if (!QC[c] || !QC[c].m[i]) return;
+  addChat('op', QC[c].m[i]);
+}
+// a CPU também "fala" no modo treino
+const pick = a => a[(Math.random() * a.length) | 0];
+function botSay(c, i, delay = 700 + Math.random() * 800) {
+  setTimeout(() => { if (S.mode === 'solo' && S.phase !== 'lobby') addChat('op', QC[c].m[i]); }, delay);
+}
+function botChatReply(c, i) {
+  if (c === 2) { if (Math.random() < 0.65) { const r = pick([[2, 0], [2, 2], [2, 3], [1, 3]]); botSay(r[0], r[1]); } }
+  else if (c === 0) { if (Math.random() < 0.5) botSay(1, 3); }
+  else if (c === 3) { if (i === 0) botSay(3, 0); else if (i === 1) botSay(3, 1); else if (i === 2) botSay(3, 2); else if (Math.random() < 0.5) botSay(1, 1); }
+  else if (c === 1 && i === 3 && Math.random() < 0.5) botSay(2, 1);
+}
+function botOnPoint(mine, reason, rally, winnerShot) {
+  if (isGameOver()) { botSay(3, 1, 1600); if (mine) botSay(3, 2, 3200); return; }
+  if (!mine) {                                   // CPU fez o ponto
+    if (Math.random() < 0.3) { const r = pick([[1, 3], [2, 0], [2, 3], [1, 0]]); botSay(r[0], r[1]); }
+  } else if (winnerShot === 'SMASH!' && Math.random() < 0.5) botSay(0, 3);
+  else if (rally >= 8 && Math.random() < 0.5) botSay(pick([0, 1]), pick([0, 1]));
+  else if ((reason === 'net' || reason === 'out') && Math.random() < 0.25) botSay(pick([1, 3]), pick([2, 3]));
+}
+$('qcList').addEventListener('click', e => { const b = e.target.closest('button'); if (b) qcPick(+b.dataset.i); });
+$('btnChat').onclick = () => { qc.mode = qc.mode === 'closed' ? 'cats' : 'closed'; qcRender(); };
+window.addEventListener('keydown', e => {
+  if (S.phase === 'lobby' || e.repeat) return;
+  if (e.target && e.target.tagName === 'INPUT') return;
+  if (e.key === 'Escape') { qc.mode = 'closed'; qcRender(); return; }
+  const n = ['1', '2', '3', '4'].indexOf(e.key);
+  if (n >= 0) { e.preventDefault(); qcPick(n); }
+});
 
 /* =====================================================================
    CÂMERA
@@ -1508,12 +1737,14 @@ function startGame(mode, side) {
   $('hud').classList.remove('hidden');
   cam.from.copy(camera.position); cam.fromLook.set(0, TH, 0); cam.introT = cam.introDur;
   resetMatch(1);
-  crowd.excite = 0.7; cheer(0.6);
+  crowd.excite = 0.7; crowdReact('start');
+  if (mode === 'solo') botSay(3, 0, 2600);
   if (mode === 'online' && location.search.includes('sala=')) history.replaceState(null, '', location.pathname);
 }
 function goMenu() {
   const wasOnline = S.mode === 'online';
   S.mode = null; S.phase = 'lobby'; S.ballVisible = false;
+  stopRhythm(); qc.mode = 'closed'; qcRender(); $('chatFeed').innerHTML = '';
   if (wasOnline) cleanupNet();
   $('hud').classList.add('hidden'); $('over').classList.add('hidden');
   $('lobby').classList.remove('hidden'); showPanel('menu'); lobbyMsg('');
@@ -1647,7 +1878,7 @@ $('lobby').classList.remove('hidden');
 const roomParam = new URLSearchParams(location.search).get('sala');
 if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
 
-window.__pp = { S, me, bot, opp, camera, cam, perf, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), playImpact, ensureAudio }) };
+window.__pp = { S, me, bot, opp, camera, cam, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), playImpact, ensureAudio }) };
 </script>
 </body>
 </html>
