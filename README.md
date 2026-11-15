@@ -45,8 +45,9 @@ ao bater direciona a bola e dá **efeito lateral** (curva no ar). Puxar a raquet
 forte faz a bola espirrar mais longa, bloquear um corte joga a bola na rede (é preciso bater forte para cima
 ou cortar de volta) e o efeito lateral desvia a bola para o lado.
 
-**Som:** gerado no navegador por síntese modal (frequências da bola, mesa e raquete), com volume pela
-força do impacto, estéreo pela posição da bola e reverb de ginásio.
+**Som:** as batidas na raquete e na mesa usam sons reais gravados (pasta `sounds/`, carregados pelo
+jsDelivr com reserva no GitHub), com volume pela força do impacto, estéreo pela posição da bola e um
+pouco de eco de ginásio. Se os arquivos não carregarem, o jogo usa sons sintetizados no navegador.
 
 ## Chat rápido (estilo Rocket League)
 Durante o jogo, aperte **1 a 4** para escolher a categoria e de novo **1 a 4** para a frase

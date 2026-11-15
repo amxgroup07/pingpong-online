@@ -1210,6 +1210,27 @@ let actx = null, master = null, sfxBus = null, noiseBuf = null;
 let crowdBus = null, murmurGain = null, applauseGain = null, clapGroupBuf = null, rhythmTimer = 0;
 const IMP = {};
 let muted = store.get('pp_mute', '0') === '1';
+let sampleBus = null;
+// Sons reais da bolinha (gravados): baixados do GitHub (CDN com reserva) e decodificados ao ativar o som.
+// Se não carregarem, o jogo usa os sons sintetizados.
+const SAMPLE_SHA = '3426a8b46e6d3cb5d791551e945fc3cf17d5a38c';
+const SAMPLE_BASES = [`https://cdn.jsdelivr.net/gh/amxgroup07/pingpong-online@${SAMPLE_SHA}/sounds/`, `https://raw.githubusercontent.com/amxgroup07/pingpong-online/${SAMPLE_SHA}/sounds/`];
+const SAMPLE_FILES = { paddle: ['paddle1', 'paddle2', 'paddle3', 'paddle4'], table: ['table1', 'table2', 'table3', 'table4'] };
+const SAMPLES = {};
+async function fetchSample(name) {
+  for (const base of SAMPLE_BASES) {
+    try { const r = await fetch(base + name + '.wav'); if (r.ok) return await r.arrayBuffer(); } catch (e) { }
+  }
+  return null;
+}
+const sampleData = Object.fromEntries(Object.entries(SAMPLE_FILES).map(([k, names]) => [k, Promise.all(names.map(fetchSample))]));
+async function decodeSamples() {
+  for (const [k, p] of Object.entries(sampleData)) {
+    const raws = await p, bufs = [];
+    for (const ab of raws) { if (!ab) continue; try { bufs.push(await actx.decodeAudioData(ab.slice(0))); } catch (e) { } }
+    if (bufs.length) SAMPLES[k] = bufs;
+  }
+}
 const _camR = new THREE.Vector3();
 
 function synthImpact(modes, o = {}) {
@@ -1253,6 +1274,10 @@ function ensureAudio() {
     const ret = actx.createGain(); ret.gain.value = 0.55;
     sfxBus = actx.createGain();
     sfxBus.connect(master); sfxBus.connect(send).connect(rev).connect(ret).connect(master);
+    // sons gravados já têm o ambiente da sala: vão quase secos
+    sampleBus = actx.createGain(); sampleBus.gain.value = 1.15;
+    const sSend = actx.createGain(); sSend.gain.value = 0.1;
+    sampleBus.connect(master); sampleBus.connect(sSend).connect(rev);
     // barramento da torcida (com bastante eco de ginásio)
     crowdBus = actx.createGain(); crowdBus.gain.value = 1;
     const crowdSend = actx.createGain(); crowdSend.gain.value = 0.5;
@@ -1289,6 +1314,7 @@ function ensureAudio() {
     applauseGain = actx.createGain(); applauseGain.gain.value = 0.0001;
     apl.connect(abp).connect(applauseGain).connect(crowdBus); apl.start();
     clapGroupBuf = makeClaps(0.25, 70, 0.045, false);
+    decodeSamples();
   } catch (e) { actx = null; }
 }
 // gera palmas: cada palma é um estalo curto de ruído com timbre, força e lado aleatórios
@@ -1399,12 +1425,16 @@ function sfxChat(who) {
 // toca um impacto: força 0..1 controla volume e brilho; posição controla estéreo e distância
 function playImpact(kind, pos, strength) {
   if (!actx || !IMP[kind]) return;
-  const set = IMP[kind], buf = set[(Math.random() * set.length) | 0];
+  // usa o som gravado quando disponível (raquete/smash -> raquete; mesa/chão -> mesa)
+  const real = { paddle: 'paddle', smash: 'paddle', table: 'table', floor: 'table' }[kind];
+  const rset = real && SAMPLES[real];
+  const set = rset || IMP[kind], buf = set[(Math.random() * set.length) | 0];
   const st = clamp(strength, 0.03, 1);
   const src = actx.createBufferSource(); src.buffer = buf;
-  src.playbackRate.value = 0.96 + Math.random() * 0.08 + st * 0.05;
+  src.playbackRate.value = rset ? (kind === 'floor' ? 1.12 : 0.97 + Math.random() * 0.06 + (kind === 'smash' ? 0.03 : 0)) : 0.96 + Math.random() * 0.08 + st * 0.05;
   const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.4;
-  let cutoff = 1800 + st * st * 14000, vol = 0.08 + st * 0.92, pan = 0;
+  let cutoff = rset ? (kind === 'floor' ? 3500 : 2600 + st * 16000) : 1800 + st * st * 14000;
+  let vol = rset ? (0.12 + st * 0.88) * (kind === 'smash' ? 1.25 : kind === 'floor' ? 0.5 : 1) : 0.08 + st * 0.92, pan = 0;
   if (pos) {
     const dx = pos[0] - camera.position.x, dy = pos[1] - camera.position.y, dz = pos[2] - camera.position.z;
     const dist = Math.hypot(dx, dy, dz);
@@ -1416,8 +1446,9 @@ function playImpact(kind, pos, strength) {
   lp.frequency.value = Math.min(cutoff, 18000);
   const g = actx.createGain(); g.gain.value = vol;
   src.connect(lp).connect(g);
-  if (actx.createStereoPanner) { const p = actx.createStereoPanner(); p.pan.value = pan; g.connect(p).connect(sfxBus); }
-  else g.connect(sfxBus);
+  const bus = rset ? sampleBus : sfxBus;
+  if (actx.createStereoPanner) { const p = actx.createStereoPanner(); p.pan.value = pan; g.connect(p).connect(bus); }
+  else g.connect(bus);
   src.start();
 }
 function whoosh(pos, strength) {
@@ -1878,7 +1909,7 @@ $('lobby').classList.remove('hidden');
 const roomParam = new URLSearchParams(location.search).get('sala');
 if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
 
-window.__pp = { S, me, bot, opp, camera, cam, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), playImpact, ensureAudio }) };
+window.__pp = { S, me, bot, opp, camera, cam, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
 </script>
 </body>
 </html>
