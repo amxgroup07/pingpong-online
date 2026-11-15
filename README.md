@@ -1,7 +1,7 @@
 # Ping Pong Online 🏓
 
 Tênis de mesa 3D no navegador para jogar 1x1 com um amigo pela internet (ou treinar contra o computador).
-É um site estático (`index.html` + `game.js`), então roda de graça na Vercel. Na Vercel, o `vercel.json` serve o `game.js` pelo jsDelivr direto do GitHub (num commit fixo).
+É um site estático (`index.html` + `game.js`), então roda de graça na Vercel. Na Vercel, o `index.html` lê o `version.txt` (sem cache) e carrega o `game.js` daquele commit pelo jsDelivr (`/v/<commit>/game.js`), então cada atualização chega na hora, sem cache velho.
 
 ## Como funciona
 
