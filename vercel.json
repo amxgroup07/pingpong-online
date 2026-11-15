@@ -1,5 +1,5 @@
 {
   "rewrites": [
-    { "source": "/game.js", "destination": "https://cdn.jsdelivr.net/gh/amxgroup07/pingpong-online@1f95ade1e70fc6d8f90240ce93df7782f73a53f3/game.js" }
+    { "source": "/game.js", "destination": "https://cdn.jsdelivr.net/gh/amxgroup07/pingpong-online@2a9d3ca12e665361e2ab3d02c505884c27e124e1/game.js" }
   ]
 }
