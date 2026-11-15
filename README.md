@@ -71,7 +71,7 @@ Cada raquete tem visual próprio (lâmina, borracha, cabo) e um som de batida di
 ## Cenários
 Arena Neon, Ginásio do Bairro, Praia ao Pôr do Sol, Terraço da Cidade e Final Mundial. Cada um tem luz,
 decoração, torcida e som próprios (eco de ginásio, ondas do mar, barulho da cidade). No online vale o cenário
-de quem cria a sala. Praia, Terraço e Final têm fogos no fim da partida; a Final tem pirotecnia nos pontos.
+de quem cria a sala. Todos têm fogos no fim da partida; a Final tem pirotecnia nos pontos.
 
 **Som:** as batidas na raquete e na mesa usam sons reais gravados (pasta `sounds/`, carregados pelo
 jsDelivr com reserva no GitHub), com volume pela força do impacto, estéreo pela posição da bola e um
