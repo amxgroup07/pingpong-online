@@ -1,7 +1,7 @@
 # Ping Pong Online 🏓
 
 Tênis de mesa 3D no navegador para jogar 1x1 com um amigo pela internet (ou treinar contra o computador).
-É um site estático (um único `index.html`), então roda de graça na Vercel.
+É um site estático (`index.html` + `game.js`), então roda de graça na Vercel. Na Vercel, o `vercel.json` serve o `game.js` pelo jsDelivr direto do GitHub (num commit fixo).
 
 ## Como funciona
 
@@ -19,7 +19,7 @@ Tênis de mesa 3D no navegador para jogar 1x1 com um amigo pela internet (ou tre
 ## Publicar na Vercel
 
 ### Opção A: pelo site (sem instalar nada)
-1. Crie um repositório no GitHub (ex.: `pingpong-online`) e envie o `index.html` (botão *Add file → Upload files*).
+1. Crie um repositório no GitHub (ex.: `pingpong-online`) e envie o `index.html` e o `game.js` (botão *Add file → Upload files*).
 2. Entre em https://vercel.com → **Add New… → Project** → importe esse repositório.
 3. Framework Preset: **Other**. Não precisa de build command. Clique em **Deploy**.
 4. Pronto: vai sair uma URL tipo `https://pingpong-online.vercel.app`.
