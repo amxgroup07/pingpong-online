@@ -30,7 +30,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const $ = id => document.getElementById(id);
 const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { } } };
 // configurações do jogador (salvas no aparelho)
-const CFG_DEF = { sensMove: 1, sensSwing: 1, vMaster: 90, vCrowd: 80, vMusic: 45, vFx: 100, vUi: 70, shake: true, replays: true, showPing: true };
+const CFG_DEF = { sensMove: 1, sensSwing: 1, vMaster: 90, vCrowd: 80, vMusic: 45, vFx: 100, vUi: 70, shake: true, replays: true, showPing: true, lockMouse: true };
 const cfg = Object.assign({}, CFG_DEF, (() => { try { return JSON.parse(store.get('pp_cfg', '{}')) || {}; } catch (e) { return {}; } })());
 const saveCfg = () => store.set('pp_cfg', JSON.stringify(cfg));
 const volGain = v => v <= 0 ? 0 : Math.pow(clamp(v, 0, 100) / 100, 1.4);
@@ -1453,20 +1453,87 @@ const raycaster = new THREE.Raycaster();
 const hitPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(TH + 0.12));
 const _hit = new THREE.Vector3(), _ndc = new THREE.Vector2();
 
-function onPointer(e) {
+// px/py: onde a raquete fica na tela; hx/hy: posição usada para medir a velocidade do gesto
+function feedPointer(px, py, hx, hy, touch) {
   const r = canvas.getBoundingClientRect();
-  let y = e.clientY;
-  if (e.pointerType === 'touch') y -= Math.min(70, r.height * 0.08);
+  if (touch) { const off = Math.min(70, r.height * 0.08); py -= off; hy -= off; }
   const sm = cfg.sensMove || 1;                      // sensibilidade: a raquete anda mais (ou menos) por movimento
-  pointer.nx = clamp((((e.clientX - r.left) / r.width) * 2 - 1) * sm, -1.7, 1.7);
-  pointer.ny = clamp(0.25 + ((((y - r.top) / r.height) * 2 - 1) - 0.25) * sm, -1.6, 1.6);
+  pointer.nx = clamp((((px - r.left) / r.width) * 2 - 1) * sm, -1.7, 1.7);
+  pointer.ny = clamp(0.25 + ((((py - r.top) / r.height) * 2 - 1) - 0.25) * sm, -1.6, 1.6);
   const t = performance.now() / 1000;
-  pointer.hist.push({ t, hx: (e.clientX - r.left) / r.height, hy: (y - r.top) / r.height });
+  pointer.hist.push({ t, hx: (hx - r.left) / r.height, hy: (hy - r.top) / r.height });
   while (pointer.hist.length > 40 || (pointer.hist.length > 2 && t - pointer.hist[0].t > 0.3)) pointer.hist.shift();
+}
+function onPointer(e) {
+  if (lock.on) {                                     // mouse preso: soma o movimento, sem sair da tela
+    const mx = clamp(e.movementX || 0, -300, 300), my = clamp(e.movementY || 0, -300, 300);
+    lock.x = clamp(lock.x + mx, 0, window.innerWidth); lock.y = clamp(lock.y + my, 0, window.innerHeight);
+    lock.rx += mx; lock.ry += my;                    // sem limite: o gesto forte para cima não "bate no teto"
+    feedPointer(lock.x, lock.y, lock.rx, lock.ry, false);
+  } else {
+    lock.x = e.clientX; lock.y = e.clientY;
+    feedPointer(e.clientX, e.clientY, e.clientX, e.clientY, e.pointerType === 'touch');
+  }
   ensureAudio();
 }
 canvas.addEventListener('pointermove', onPointer);
-canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture?.(e.pointerId); onPointer(e); });
+canvas.addEventListener('pointerdown', e => {
+  if (!lock.on) canvas.setPointerCapture?.(e.pointerId);
+  else if (typeof RP !== 'undefined' && (RP.play || END.active)) { $('rpSkip').click(); return; }   // mouse preso: clique pula o replay
+  onPointer(e);
+});
+
+/* ---------- tela cheia com o mouse preso (para quem tem dois monitores) ----------
+   Na partida, o jogo pede tela cheia e prende o mouse (Pointer Lock): o cursor some e não
+   escapa para o outro monitor num gesto forte. Esc solta; no treino, soltar pausa o jogo. */
+const lock = { on: false, failed: false, x: window.innerWidth / 2, y: window.innerHeight * 0.75, rx: 0, ry: 0 };
+const lockSupported = () => !!canvas.requestPointerLock && !(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+function enterPlayMode() {
+  if (!cfg.lockMouse || !lockSupported()) return;
+  lock.failed = false;
+  try {
+    const el = document.documentElement;
+    if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen({ navigationUI: 'hide' }).catch(() => { });
+  } catch (e) { }
+  try {
+    const p = canvas.requestPointerLock({ unadjustedMovement: true });
+    if (p && p.catch) p.catch(() => { try { const q = canvas.requestPointerLock(); if (q && q.catch) q.catch(lockFailed); } catch (e) { lockFailed(); } });
+  } catch (e) { try { canvas.requestPointerLock(); } catch (e2) { lockFailed(); } }
+}
+// o navegador não deixou prender o mouse: joga assim mesmo (sem travar o jogo no aviso)
+function lockFailed() { if (lock.on) return; lock.failed = true; updateLockUI(); }
+function releaseMouse() { if (document.pointerLockElement) try { document.exitPointerLock(); } catch (e) { } }
+function toggleFullscreen() {
+  try { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => { }); } catch (e) { }
+}
+const settingsOpen = () => { const el = $('cfgScreen'); return !!el && !el.classList.contains('hidden'); };
+// mostra o aviso "clique para jogar" quando o mouse devia estar preso e não está
+function needLockPrompt() {
+  return !!S.mode && S.phase !== 'lobby' && S.phase !== 'over' && cfg.lockMouse && lockSupported() && !lock.on && !lock.failed &&
+    !settingsOpen() && !(typeof END !== 'undefined' && END.active) && !(typeof RP !== 'undefined' && RP.play);
+}
+function updateLockUI() {
+  const el = $('lockOverlay'); if (!el) return;
+  const show = needLockPrompt();
+  el.classList.toggle('hidden', !show);
+  if (show) {
+    const solo = S.mode === 'solo';
+    $('lkTitle').textContent = solo ? '⏸ Pausado' : '🖱️ Clique para jogar';
+    $('lkGo').textContent = solo ? 'Continuar' : 'Jogar';
+    $('lkSub').textContent = solo ? 'Clique para continuar. O mouse fica preso na tela cheia (Esc solta).'
+      : 'O mouse fica preso na tela cheia para não escapar para o outro monitor. Esc solta.';
+  }
+  S.paused = settingsOpen() || (S.mode === 'solo' && show);
+}
+document.addEventListener('pointerlockchange', () => {
+  const was = lock.on;
+  lock.on = document.pointerLockElement === canvas;
+  if (lock.on && !was) { lock.rx = lock.x; lock.ry = lock.y; pointer.hist.length = 0; lock.failed = false; }
+  document.body.classList.toggle('locked', lock.on);
+  updateLockUI();
+});
+document.addEventListener('pointerlockerror', () => { lock.on = false; lockFailed(); });
+document.addEventListener('fullscreenchange', () => { const b = $('btnFull'); if (b) b.textContent = document.fullscreenElement ? '🗗' : '⛶'; });
 
 function swipeVel() {
   const h = pointer.hist, now = performance.now() / 1000;
@@ -1879,7 +1946,7 @@ function onMsg(m) {
       $('ping').textContent = `ping ${Math.round(S.rtt * 1000)} ms`;
       break;
     }
-    case 'rematch': resetMatch(-S.matchFirst); break;
+    case 'rematch': resetMatch(-S.matchFirst); setTimeout(updateLockUI, 50); break;
     case 'chat': recvChat(m); break;
   }
 }
@@ -2603,6 +2670,7 @@ function startGame(mode, side, format = 1) {
   resetMatch(1);
   crowd.mySide = side; if (A.crowdView) A.crowdView.setTeams(side);
   crowd.excite = 0.7; crowdReact('start'); music.duck();
+  setTimeout(updateLockUI, 50);
   if (mode === 'solo') {                        // a CPU escolhe uma raquete diferente a cada partida
     const pool = RACKETS.filter(r => r.id !== myRacket.id);
     setPaddle('op', pool[(Math.random() * pool.length) | 0], 'CPU');
@@ -2616,6 +2684,7 @@ function goMenu() {
   const wasOnline = S.mode === 'online';
   S.mode = null; S.phase = 'lobby'; S.ballVisible = false; S.ranked = null; S.oppName = null;
   stopEnd(); endReplay(false); RP.pending = false; RP.rec = null; S.paused = false; music.duck();
+  releaseMouse(); updateLockUI();
   if (typeof stopQueue === 'function') stopQueue(false);
   stopRhythm(); qc.mode = 'closed'; qcRender(); $('chatFeed').innerHTML = '';
   if (wasOnline) cleanupNet();
@@ -2628,14 +2697,14 @@ function goMenu() {
 $('btnCreate').onclick = () => { ensureAudio(); lockedNotice(); createRoom(); };
 $('btnJoin').onclick = () => { ensureAudio(); lockedNotice(); joinRoom($('inCode').value); };
 $('inCode').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom($('inCode').value); });
-$('btnSolo').onclick = () => { ensureAudio(); lockedNotice(); cleanupNet(); startGame('solo', 1, pickState.fmt); };
+$('btnSolo').onclick = () => { ensureAudio(); lockedNotice(); cleanupNet(); startGame('solo', 1, pickState.fmt); enterPlayMode(); };
 $('btnCancel').onclick = $('btnCancel2').onclick = () => { cleanupNet(); showPanel('menu'); lobbyMsg(''); };
 $('btnCopy').onclick = async () => {
   const v = $('linkTxt').value;
   try { await navigator.clipboard.writeText(v); } catch (e) { $('linkTxt').select(); document.execCommand('copy'); }
   $('btnCopy').textContent = 'Link copiado!'; setTimeout(() => $('btnCopy').textContent = 'Copiar link', 1500);
 };
-$('btnRematch').onclick = () => { if (S.ranked) { goMenu(); startRanked(); return; } if (S.mode === 'online') send({ t: 'rematch' }); resetMatch(-S.matchFirst); };
+$('btnRematch').onclick = () => { if (S.ranked) { goMenu(); startRanked(); return; } if (S.mode === 'online') send({ t: 'rematch' }); resetMatch(-S.matchFirst); enterPlayMode(); setTimeout(updateLockUI, 50); };
 $('btnMenu').onclick = () => goMenu();
 $('quit').onclick = () => goMenu();
 $('btnSound').onclick = () => { ensureAudio(); setMuted(!muted); };
@@ -3073,21 +3142,22 @@ const CFG_UI = [
     ['toggle', 'replays', 'Replays dos pontos bonitos e melhores momentos'],
     ['toggle', 'shake', 'Câmera treme no smash'],
     ['toggle', 'showPing', 'Mostrar o ping no online'],
+    ['toggle', 'lockMouse', 'Tela cheia com o mouse preso na partida (bom para dois monitores)'],
     ['quality'],
   ]],
 ];
 function applyCfg() {
-  saveCfg(); applyVolumes();
+  saveCfg(); applyVolumes(); if (typeof updateLockUI === 'function') updateLockUI();
   const pg = $('ping'); if (pg) pg.style.display = cfg.showPing ? '' : 'none';
 }
 function openSettings(focus) {
   ensureAudio();
   const scr = $('cfgScreen'); scr.classList.remove('hidden');
-  if (S.mode === 'solo' && S.phase !== 'over') S.paused = true;   // no treino o jogo pausa
+  releaseMouse(); updateLockUI();                                   // no treino o jogo pausa
   renderSettings();
   if (focus === 'perfil') setTimeout(() => { const i = $('cfTag'); if (i) { i.scrollIntoView({ block: 'center' }); i.focus(); } }, 50);
 }
-function closeSettings() { $('cfgScreen').classList.add('hidden'); S.paused = false; }
+function closeSettings() { $('cfgScreen').classList.add('hidden'); S.paused = false; updateLockUI(); }
 function renderSettings() {
   const body = $('cfgBody'); body.textContent = '';
   for (const [title, items] of CFG_UI) {
@@ -3299,6 +3369,11 @@ function initMenusUI() {
   const st = document.createElement('style');
   st.textContent = `
   #lobby .card { position: relative; }
+  #lockOverlay { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(5,3,10,.55); backdrop-filter: blur(3px); cursor: pointer; }
+  #lockOverlay.hidden { display: none; }
+  .lk-card { background: rgba(20,12,24,.92); border: 1px solid rgba(255,255,255,.12); border-radius: 18px; padding: 22px 24px; width: min(360px, 90vw); text-align: center; cursor: default; }
+  .lk-t { font: italic 900 26px system-ui; margin-bottom: 6px; } .lk-s { font-size: 13px; opacity: .75; line-height: 1.45; margin-bottom: 14px; }
+  body.locked #c { cursor: none; }
   .gear { position: absolute; top: 14px; right: 14px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.08); color: #fff; font-size: 19px; cursor: pointer; z-index: 2; }
   .gear:hover { background: rgba(255,79,139,.35); }
   #cfgScreen .card, #admScreen .card { max-width: 560px; text-align: left; max-height: 92vh; overflow-y: auto; }
@@ -3372,6 +3447,18 @@ function initMenusUI() {
   document.querySelector('#lobby .card').prepend(gear);
   const hg = h('button', { id: 'btnCfg', title: 'Configurações', text: '⚙️' }); hg.onclick = () => openSettings();
   $('btnSound').before(hg);
+  const fb = h('button', { id: 'btnFull', title: 'Tela cheia', text: '⛶' }); fb.onclick = toggleFullscreen;
+  hg.before(fb);
+  const lk = h('div', { id: 'lockOverlay', class: 'hidden' });
+  const lkGo = h('button', { class: 'btn', id: 'lkGo', text: 'Jogar' });
+  const lkCfg = h('button', { class: 'btn ghost', text: '⚙️ Configurações' });
+  const lkQuit = h('button', { class: 'btn ghost', text: 'Sair para o menu' });
+  lkGo.onclick = e => { e.stopPropagation(); enterPlayMode(); };
+  lkCfg.onclick = e => { e.stopPropagation(); openSettings(); };
+  lkQuit.onclick = e => { e.stopPropagation(); goMenu(); };
+  lk.onclick = () => enterPlayMode();
+  lk.append(h('div', { class: 'lk-card' }, h('div', { class: 'lk-t', id: 'lkTitle' }), h('div', { class: 'lk-s', id: 'lkSub' }), h('div', { class: 'stack' }, lkGo, lkCfg, lkQuit)));
+  document.body.append(lk);
   const cs = h('div', { id: 'cfgScreen', class: 'screen hidden' });
   cs.style.zIndex = 42;
   const x1 = h('button', { class: 'cf-x', 'aria-label': 'Fechar', text: '✕' }); x1.onclick = closeSettings;
@@ -3498,7 +3585,7 @@ function startReplay(clip, o = {}) {
   $('rpTitle').textContent = RP.play.title; $('rpCap').textContent = clipDesc(clip);
   $('rpSkip').textContent = 'Pular ⏭'; $('rpUI').classList.remove('hidden');
   $('chatFeed').classList.add('hidden');
-  flash();
+  flash(); updateLockUI();
   if (o.mode === 'instant' && !cfg.replays) skipReplay();   // quem desligou os replays já vota para pular
 }
 function endReplay(run = true) {
@@ -3506,6 +3593,7 @@ function endReplay(run = true) {
   RP.play = null; trailPts.length = 0;
   document.body.classList.remove('replaying'); $('rpUI').classList.add('hidden'); $('chatFeed').classList.remove('hidden');
   if (run && p.onEnd) p.onEnd();
+  updateLockUI();
 }
 function skipReplay() {
   const p = RP.play; if (!p) return;
@@ -3675,7 +3763,8 @@ function finishEnd() {
   END.active = false; END.stage = '';
   if (RP.play) endReplay(false);
   document.body.classList.remove('replaying'); $('rpUI').classList.add('hidden');
-  if (S.phase === 'over') $('over').classList.remove('hidden');
+  if (S.phase === 'over') { $('over').classList.remove('hidden'); releaseMouse(); }
+  updateLockUI();
 }
 function stopEnd() { END.active = false; END.stage = ''; if (RP.play) endReplay(false); document.body.classList.remove('replaying'); $('rpUI').classList.add('hidden'); }
 
@@ -3889,4 +3978,4 @@ checkVipLink();
 const roomParam = new URLSearchParams(location.search).get('sala');
 if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
 
-window.__pp = { RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+window.__pp = { lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };

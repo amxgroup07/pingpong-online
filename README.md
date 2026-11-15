@@ -117,7 +117,14 @@ em todos os cenários (dentro do ginásio sobem menos), câmera passeando e os *
 ## Configurações (⚙️)
 No menu e durante a partida (no treino o jogo pausa): sensibilidade do movimento e da batida, volume geral,
 bolinha/raquete, torcida/ambiente, música e avisos (cada um com botão de mudo), replays, tremor da câmera,
-ping e gráficos. Tudo fica salvo no aparelho. A música é gerada no navegador e fica baixinha durante o jogo.
+ping, gráficos e tela cheia com mouse preso. Tudo fica salvo no aparelho. A música é gerada no navegador e fica baixinha durante o jogo.
+
+## Tela cheia com o mouse preso
+No computador, a partida abre em tela cheia e prende o mouse (Pointer Lock): o cursor some e não escapa para
+o outro monitor num gesto forte. O jogo lê o movimento do mouse, então dá para bater forte mesmo com a raquete
+encostada na borda. **Esc** solta o mouse; no treino, isso pausa o jogo (Continuar / Configurações / Sair). No
+online, depois de conectar, um clique na tela prende o mouse. Dá para desligar em ⚙️ e o botão ⛶ liga/desliga
+a tela cheia. Se o navegador não deixar prender o mouse, o jogo segue normal sem travar.
 
 ## Sigla na raquete e efeitos de borda
 Cada jogador escolhe uma sigla de até 6 letras/números (com conta, fica salva na conta; sem conta, no aparelho).
