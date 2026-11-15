@@ -89,6 +89,20 @@ No ponto, quem torce pelo vencedor pula com os braços pra cima e o outro lado p
 vira **ola** pela arquibancada, no match point todo mundo bate palma junto, e tem cartazes e flashes de celular.
 O som também é sintetizado: murmúrio em estéreo, "aaah!" e "óóóh", aplausos, assobios e palmas ritmadas.
 
+## Contas e ranqueada
+- **Login:** "Entrar com Steam" (OpenID da Steam, pela função `steam-auth` do Supabase) ou Google
+  (o botão só aparece depois que o provedor Google estiver ligado no Supabase).
+- **Banco:** projeto Supabase `pingpong-online` (São Paulo). Tabelas `profiles`, `ratings`, `matches`
+  e `ranked_queue`, todas só leitura para o jogo; elo e partidas só mudam por funções do servidor.
+- **Fila:** "⚔️ Jogar ranqueada" procura alguém com elo parecido (a faixa abre com o tempo). Depois de
+  45 s sem adversário, aparece a opção de treinar contra a CPU (não vale elo).
+- **Placar:** cada jogador envia o resultado; o servidor só aplica o elo quando os dois batem. Placares
+  diferentes ficam "em análise" e não contam. Se alguém sair e não voltar em 3 minutos, quem ficou ganha
+  com metade do elo e o outro leva um abandono.
+- **Elo:** começa em 1000, K = 40 nas 10 primeiras partidas (colocação), 24 até 30 e 16 depois.
+  Divisões: Bronze, Prata (1100), Ouro (1300), Platina (1500), Diamante (1700) e Lenda (1900).
+- **Admin:** `profiles.is_admin = true` libera todas as raquetes na conta, em qualquer aparelho.
+
 ## Testar localmente
 Precisa abrir por um servidor (não abra o arquivo direto com duplo clique):
 ```bash
