@@ -101,7 +101,37 @@ O som também é sintetizado: murmúrio em estéreo, "aaah!" e "óóóh", aplaus
   com metade do elo e o outro leva um abandono.
 - **Elo:** começa em 1000, K = 40 nas 10 primeiras partidas (colocação), 24 até 30 e 16 depois.
   Divisões: Bronze, Prata (1100), Ouro (1300), Platina (1500), Diamante (1700) e Lenda (1900).
-- **Admin:** `profiles.is_admin = true` libera todas as raquetes na conta, em qualquer aparelho.
+- **Admin:** `profiles.is_admin = true` libera todas as raquetes na conta, em qualquer aparelho, e abre o painel do admin.
+
+## Formatos de partida
+No menu: **Duelo** (1 game de 11), **MD3** (melhor de 3) ou **MD5** (melhor de 5). No online vale o formato de
+quem cria a sala; a ranqueada é sempre 1 game. Entre os games aparece o placar do game, a torcida comemora e o
+saque inicial alterna. O placar mostra bolinhas com os games ganhos e avisa GAME POINT / MATCH POINT.
+
+## Replays e comemoração
+Cada ponto é gravado. Ponto bonito (rally longo, smash, curva, bola na fita, ace) ganha **replay na hora**:
+câmera de TV, câmera lenta congelando na batida com zoom, câmera seguindo a bola e comemoração. Dá para pular
+(botão ou espaço); no online os dois precisam pular. No fim da partida: faixa de VITÓRIA, fogos de artifício
+em todos os cenários (dentro do ginásio sobem menos), câmera passeando e os **2 melhores momentos** do jogador.
+
+## Configurações (⚙️)
+No menu e durante a partida (no treino o jogo pausa): sensibilidade do movimento e da batida, volume geral,
+bolinha/raquete, torcida/ambiente, música e avisos (cada um com botão de mudo), replays, tremor da câmera,
+ping e gráficos. Tudo fica salvo no aparelho. A música é gerada no navegador e fica baixinha durante o jogo.
+
+## Sigla na raquete e efeitos de borda
+Cada jogador escolhe uma sigla de até 6 letras/números (com conta, fica salva na conta; sem conta, no aparelho).
+Ela aparece grande na borracha, acima do nome da raquete, e o adversário vê. Víbora (verde), Foguete (chama
+azul e laranja), Muralha (rosa) e Dragão Dourado (ouro com faíscas) têm borda brilhante e partículas.
+
+## Painel do admin
+Quem tem `is_admin` vê o botão **🛠️ Painel admin** no cartão da conta:
+- **Jogadores:** busca por nome, sigla, e-mail ou Steam ID; muda nome, sigla e elo; libera ou tira raquetes
+  daquele jogador; dá/tira admin; bane (com motivo) e zera estatísticas.
+- **Raquetes:** liga/desliga cada raquete no jogo, deixa "para todos", define vitórias para liberar e dá ou tira
+  uma raquete de todos os jogadores de uma vez.
+- **Histórico:** tudo que os admins mudaram (tabela `admin_log`).
+Tudo passa por funções do servidor que conferem se quem chamou é admin.
 
 ## Testar localmente
 Precisa abrir por um servidor (não abra o arquivo direto com duplo clique):

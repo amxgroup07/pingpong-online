@@ -23,12 +23,17 @@ const DT = 1 / 240;             // passo fixo da física
 const TIME_SCALE = 0.72;        // câmera lenta leve p/ ficar jogável
 const POWER_DIV = 2.1;          // velocidade do gesto (alturas de tela/s) -> força
 const POINT_TO_WIN = 11;
-const PEER_PREFIX = 'ppol-v1-';
+const PEER_PREFIX = 'ppol-v2-';      // v2: formatos MD3/MD5, replays e sigla na raquete
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const $ = id => document.getElementById(id);
 const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { } } };
+// configurações do jogador (salvas no aparelho)
+const CFG_DEF = { sensMove: 1, sensSwing: 1, vMaster: 90, vCrowd: 80, vMusic: 45, vFx: 100, vUi: 70, shake: true, replays: true, showPing: true };
+const cfg = Object.assign({}, CFG_DEF, (() => { try { return JSON.parse(store.get('pp_cfg', '{}')) || {}; } catch (e) { return {}; } })());
+const saveCfg = () => store.set('pp_cfg', JSON.stringify(cfg));
+const volGain = v => v <= 0 ? 0 : Math.pow(clamp(v, 0, 100) / 100, 1.4);
 
 /* =====================================================================
    FÍSICA DA BOLA — determinística: os dois jogadores simulam igual
@@ -1092,15 +1097,15 @@ function extrudeUV(depth) {
 const RACKETS = [
   { id: 'classica', name: 'Clássica', tag: 'Equilibrada', desc: 'Madeira de 5 camadas e borracha lisa. Boa em tudo, ótima pra começar.', speed: 3, spin: 3, ctrl: 4,
     sound: { rate: 1, cut: 1, vol: 1 }, look: { color: 0xe0192f, rubber: 'smooth', ply: 'wood', handle: 'wood', logo: 'PPO', sub: 'CLASSIC 40°', scale: 1.2 } },
-  { id: 'vibora', name: 'Víbora', tag: 'Efeito máximo', desc: 'Borracha grudenta: muito topspin e curva lateral forte. A bola mergulha na mesa e espirra no adversário.', speed: 3, spin: 5, ctrl: 3,
+  { id: 'vibora', name: 'Víbora', tag: 'Efeito máximo', fx: { kind: 'venom', c1: 0x39ff7a, c2: 0x0b8f3a }, desc: 'Borracha grudenta: muito topspin e curva lateral forte. A bola mergulha na mesa e espirra no adversário.', speed: 3, spin: 5, ctrl: 3,
     sound: { rate: 0.95, cut: 0.8, vol: 0.95 }, look: { color: 0x17a34a, rubber: 'tacky', ply: 'wood', handle: 'black', logo: 'VÍBORA', sub: 'STICKY 39°', scale: 1.2 } },
-  { id: 'foguete', name: 'Foguete', tag: 'Velocidade', desc: 'Lâmina de carbono: a bola sai muito rápida, mas exige controle. Errou o tempo, a bola sai torta.', speed: 5, spin: 2, ctrl: 2,
+  { id: 'foguete', name: 'Foguete', tag: 'Velocidade', fx: { kind: 'flame', c1: 0x3aa0ff, c2: 0xff7a1a }, desc: 'Lâmina de carbono: a bola sai muito rápida, mas exige controle. Errou o tempo, a bola sai torta.', speed: 5, spin: 2, ctrl: 2,
     sound: { rate: 1.08, cut: 1.25, vol: 1.12 }, look: { color: 0x1f6fff, rubber: 'smooth', ply: 'carbon', handle: 'carbon', logo: 'FOGUETE', sub: 'CARBON SPEED', scale: 1.24 } },
-  { id: 'muralha', name: 'Muralha', tag: 'Anti-efeito', desc: 'Pino longo: não gera efeito nenhum, mas devolve o efeito do adversário ao contrário (o topspin dele volta como corte).', speed: 2, spin: 0, ctrl: 5, anti: true,
+  { id: 'muralha', name: 'Muralha', tag: 'Anti-efeito', fx: { kind: 'shield', c1: 0xff9ad6, c2: 0xffffff }, desc: 'Pino longo: não gera efeito nenhum, mas devolve o efeito do adversário ao contrário (o topspin dele volta como corte).', speed: 2, spin: 0, ctrl: 5, anti: true,
     sound: { rate: 0.88, cut: 0.55, vol: 0.8 }, look: { color: 0xff6fae, rubber: 'pips', ply: 'wood', handle: 'light', logo: 'MURALHA', sub: 'LONG PIPS', scale: 1.2 } },
   { id: 'raiz', name: 'Raiz', tag: 'Bola reta', desc: 'Retrô, sem esponja: bola reta e veloz, quase sem efeito. Fácil de bater, difícil de enganar.', speed: 4, spin: 1, ctrl: 3,
     sound: { rate: 1.16, cut: 1.05, vol: 1.05 }, look: { color: 0xb3261e, rubber: 'hardbat', ply: 'old', handle: 'old', logo: 'RAIZ', sub: 'HARDBAT 1965', scale: 1.16 } },
-  { id: 'dragao', name: 'Dragão Dourado', tag: 'Lendária', desc: 'Rápida, com muito efeito e muito controle.', speed: 4, spin: 4, ctrl: 4, unlock: 3,
+  { id: 'dragao', name: 'Dragão Dourado', tag: 'Lendária', fx: { kind: 'gold', c1: 0xffc23a, c2: 0xfff2b0 }, desc: 'Rápida, com muito efeito e muito controle.', speed: 4, spin: 4, ctrl: 4, unlock: 3,
     sound: { rate: 1.03, cut: 1.12, vol: 1.05 }, look: { color: 0xd9a520, rubber: 'gold', ply: 'gold', handle: 'gold', logo: 'DRAGÃO', sub: '★ LENDÁRIA ★', scale: 1.22 } },
 ];
 const racketById = id => RACKETS.find(r => r.id === id) || RACKETS[0];
@@ -1109,7 +1114,26 @@ const winCount = () => +store.get('pp_wins', '0') || 0;
 const VIP_HASH = '58ad5d6d6e4e1bac078a1a8dc4c2c63af41e6747573939db4d1186abe1d7e5ae';
 const acct = { sb: null, user: null, profile: null, providers: { google: false }, ready: null };   // conta (preenchida no bloco CONTA)
 const isVip = () => store.get('pp_vip', '0') === '1' || !!(acct.profile && acct.profile.admin);
-const isUnlocked = r => !r.unlock || isVip() || winCount() >= r.unlock;
+// regras de cada raquete vindas do banco (o admin liga/desliga, libera para todos ou pede vitórias)
+const RCFG = {};
+const rcfg = r => RCFG[r.id] || { enabled: true, free: !r.unlock, unlock_wins: r.unlock || null };
+const totalWins = () => Math.max(winCount(), (acct.profile && acct.profile.wins) || 0);
+const grantedTo = r => !!(acct.profile && Array.isArray(acct.profile.rackets) && acct.profile.rackets.includes(r.id));
+const isListed = r => isVip() || rcfg(r).enabled !== false || grantedTo(r);
+const isUnlocked = r => {
+  if (isVip() || grantedTo(r)) return true;
+  const c = rcfg(r);
+  if (c.enabled === false) return false;
+  return !!c.free || (!!c.unlock_wins && totalWins() >= c.unlock_wins);
+};
+function lockText(r) {
+  const c = rcfg(r);
+  return c.unlock_wins ? `Vença ${c.unlock_wins} partidas para liberar (você tem ${totalWins()}).` : 'Exclusiva: só o admin libera esta raquete.';
+}
+// sigla do jogador gravada na raquete (até 6 letras/números)
+const cleanTag = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+const myTag = () => cleanTag(acct.profile ? (acct.profile.tag || acct.profile.name) : store.get('pp_tag', ''));
+let oppTag = '';
 const RTX = {};                                     // texturas de raquete em cache
 const rtx = (k, f) => RTX[k] || (RTX[k] = f());
 function plyTexFor(kind) {
@@ -1149,8 +1173,8 @@ function badgeTexFor(look) {
     g.fillText(look.logo, w / 2, h / 2 + 4); g.font = '700 13px system-ui'; g.fillText('PRO', w / 2, h / 2 + 30);
   }));
 }
-function rubberTexFor(hex, kind, logo, sub) {
-  return rtx(`r_${hex}_${kind}_${logo}`, () => {
+function rubberTexFor(hex, kind, logo, sub, ptag = '') {
+  return rtx(`r_${hex}_${kind}_${logo}_${ptag}`, () => {
     const c = new THREE.Color(hex), dark = c.r + c.g + c.b < 0.4, css = '#' + c.getHexString();
     const top = canvasTex(512, 512, (g, w, h) => {
       g.fillStyle = css; g.fillRect(0, 0, w, h);
@@ -1170,6 +1194,14 @@ function rubberTexFor(hex, kind, logo, sub) {
       g.fillText(logo, w / 2, h * 0.76);
       g.font = '800 19px system-ui'; g.fillText(sub.split('').join(' '), w / 2, h * 0.815);
       g.fillRect(w * 0.32, h * 0.835, w * 0.36, 3);
+      if (ptag) {                                              // sigla do jogador, grande, acima do nome da raquete
+        let ts = 128; g.font = `900 ${ts}px system-ui`; while (g.measureText(ptag).width > w * 0.7) { ts -= 4; g.font = `900 ${ts}px system-ui`; }
+        g.lineJoin = 'round'; g.lineWidth = Math.max(5, ts * 0.09);
+        g.strokeStyle = kind === 'gold' ? 'rgba(255,240,190,.9)' : 'rgba(0,0,0,.55)';
+        g.fillStyle = kind === 'gold' ? '#4a2c02' : dark ? '#f2d27a' : '#ffffff';
+        g.strokeText(ptag, w / 2, h * 0.6); g.fillText(ptag, w / 2, h * 0.6);
+        g.globalAlpha = 0.7; g.fillRect(w * 0.42, h * 0.635, w * 0.16, 2.5); g.globalAlpha = 1;
+      }
     });
     const side = canvasTex(16, 64, (g, w, h) => {              // borda: lâmina da borracha + esponja (a Raiz não tem esponja)
       g.fillStyle = css; g.fillRect(0, 0, w, kind === 'hardbat' ? h : 18);
@@ -1211,6 +1243,15 @@ const rubberGeo = new THREE.ExtrudeGeometry(bladeShape, { depth: RUBBER_T, bevel
 const rubberGeoThin = new THREE.ExtrudeGeometry(bladeShape, { depth: 0.0011, bevelEnabled: false, curveSegments: 1, UVGenerator: extrudeUV(0.0011) });
 const handleGeo = loftGeometry(HANDLE_SECS), handleGeoST = loftGeometry(HANDLE_ST);
 const badgeGeo = new THREE.PlaneGeometry(0.013, 0.021);
+// aro em volta da lâmina, usado pelas raquetes com efeito na borda
+const RIM_PTS = bladeShape.getPoints(96);
+const rimGeo = (() => {
+  const outer = new THREE.Shape(RIM_PTS.map(p => p.clone().multiplyScalar(1.05)));
+  outer.holes.push(new THREE.Path(RIM_PTS.map(p => p.clone().multiplyScalar(0.995)).reverse()));
+  const d = BLADE_T + RUBBER_T * 2 + 0.0026;
+  const g = new THREE.ExtrudeGeometry(outer, { depth: d, bevelEnabled: false, curveSegments: 1 });
+  g.translate(0, 0, -d / 2); return g;
+})();
 const RUBBER_MAT = {
   smooth: { roughness: 0.55, clearcoat: 0.28, clearcoatRoughness: 0.45 },
   tacky: { roughness: 0.3, clearcoat: 0.75, clearcoatRoughness: 0.18 },
@@ -1219,7 +1260,7 @@ const RUBBER_MAT = {
   gold: { roughness: 0.32, metalness: 0.45, clearcoat: 0.5, clearcoatRoughness: 0.2 },
 };
 // monta a raquete; o lado colorido fica para a câmera de quem segura (sua raquete) ou para você (a do adversário)
-function buildRacket(def, mine, opacity = 1) {
+function buildRacket(def, mine, opacity = 1, ptag = '') {
   const L = def.look, root = new THREE.Group(), pivot = new THREE.Group(); root.add(pivot);
   const racket = new THREE.Group(); racket.scale.setScalar(L.scale || PADDLE_SCALE); pivot.add(racket);
   const base = opacity < 1 ? { transparent: true, opacity } : {};
@@ -1228,7 +1269,7 @@ function buildRacket(def, mine, opacity = 1) {
   const colored = mine ? 1 : -1, thin = L.rubber === 'hardbat';
   for (const sideZ of [-1, 1]) {
     const isCol = sideZ === colored, kind = isCol ? L.rubber : (thin ? 'hardbat' : 'smooth');
-    const t = rubberTexFor(isCol ? L.color : 0x1a1a1c, kind, L.logo, L.sub);
+    const t = rubberTexFor(isCol ? L.color : 0x1a1a1c, kind, L.logo, L.sub, isCol ? ptag : '');
     const top = new THREE.MeshPhysicalMaterial({ map: t.top, ...RUBBER_MAT[kind], ...base });
     const edge = new THREE.MeshStandardMaterial({ map: t.side, roughness: 0.9, ...base });
     const rb = new THREE.Mesh(thin ? rubberGeoThin : rubberGeo, [top, edge]);
@@ -1241,23 +1282,31 @@ function buildRacket(def, mine, opacity = 1) {
   const handle = new THREE.Mesh(hk === 'old' ? handleGeoST : handleGeo, wood); handle.castShadow = true; racket.add(handle);
   const bm = new THREE.MeshStandardMaterial({ map: badgeTexFor(L), roughness: 0.3, metalness: 0.5, transparent: true, opacity, alphaTest: 0.05 });
   for (const sz of [-1, 1]) { const b = new THREE.Mesh(badgeGeo, bm); b.position.set(0, -0.128, sz * 0.0112); if (sz < 0) b.rotation.y = Math.PI; racket.add(b); }
-  return { root, pivot };
+  let fx = null;
+  if (def.fx) {                                    // borda brilhante (o bloom deixa com cara de neon)
+    const mat = new THREE.MeshBasicMaterial({ color: def.fx.c1, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    const rim = new THREE.Mesh(rimGeo, mat); racket.add(rim);
+    fx = { ...def.fx, mat, rim, scale: L.scale || PADDLE_SCALE, acc: 0 };
+  }
+  return { root, pivot, fx };
 }
 function disposeRacket(root) { root.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); }
-function makePaddle(def, mine) {
-  const { root, pivot } = buildRacket(def, mine, mine ? 0.88 : 1);
+function makePaddle(def, mine, ptag = '') {
+  const { root, pivot, fx } = buildRacket(def, mine, mine ? 0.88 : 1, ptag);
   scene.add(root);
-  root.userData = { pivot, swing: 0, vx: 0, vz: 0, lx: 0, lz: 0 };
+  root.userData = { pivot, fx, swing: 0, vx: 0, vz: 0, lx: 0, lz: 0, tag: ptag };
   return root;
 }
 let myRacket = racketById(store.get('pp_racket', 'classica'));
 if (!isUnlocked(myRacket)) myRacket = RACKETS[0];
 let oppRacket = RACKETS[0];
-let myPaddleMesh = makePaddle(myRacket, true);
+let myPaddleMesh = makePaddle(myRacket, true, myTag());
 let oppPaddleMesh = makePaddle(oppRacket, false);
-function setPaddle(which, def) {
+function setPaddle(which, def, ptag) {
   const mine = which === 'me', old = mine ? myPaddleMesh : oppPaddleMesh;
-  const m = makePaddle(def, mine);
+  if (ptag === undefined) ptag = mine ? myTag() : oppTag;
+  if (!mine) oppTag = ptag;
+  const m = makePaddle(def, mine, ptag);
   m.visible = old.visible; m.position.copy(old.position); m.rotation.copy(old.rotation);
   Object.assign(m.userData, { lx: old.userData.lx, lz: old.userData.lz });
   scene.remove(old); disposeRacket(old);
@@ -1312,7 +1361,29 @@ function makeParticles(max, size, additive) {
 }
 const sparks = makeParticles(260, 0.028, true);
 const confetti = makeParticles(400, 0.06, false);
-const pyro = makeParticles(700, 0.055, true);
+const pyro = makeParticles(1400, 0.055, true);
+const aura = makeParticles(260, 0.018, true);
+const fwSolid = makeParticles(900, 0.11, false);       // fogos com cor sólida: aparecem mesmo no céu claro
+const _rimV = new THREE.Vector3();
+function updateRacketFx(mesh, t, dt) {
+  const fx = mesh.userData.fx; if (!fx || !mesh.visible) return;
+  const k = 0.5 + 0.5 * Math.sin(t * 3.1), sp = Math.hypot(mesh.userData.vx || 0, mesh.userData.vz || 0);
+  if (fx.kind === 'flame') { fx.mat.color.setHex(fx.c1).lerp(_fxC.setHex(fx.c2), 0.5 + 0.5 * Math.sin(t * 9) * Math.random()); fx.mat.opacity = 0.7 + Math.random() * 0.3; }
+  else if (fx.kind === 'gold') { fx.mat.color.setHex(fx.c1).lerp(_fxC.setHex(fx.c2), k * 0.6); fx.mat.opacity = 0.75 + k * 0.25; }
+  else if (fx.kind === 'venom') { fx.mat.color.setHex(fx.c2).lerp(_fxC.setHex(fx.c1), k); fx.mat.opacity = 0.55 + k * 0.4; }
+  else { fx.mat.opacity = 0.35 + k * 0.35; }
+  const rate = { gold: 38, flame: 18 + Math.min(sp, 4) * 22, venom: 22, shield: 8 }[fx.kind] || 0;
+  fx.acc += rate * dt;
+  while (fx.acc >= 1) {
+    fx.acc -= 1;
+    const p = RIM_PTS[(Math.random() * RIM_PTS.length) | 0];
+    _rimV.set(p.x * 1.05, p.y * 1.05, 0); fx.rim.localToWorld(_rimV);
+    const o = { gold: [fx.c1, 0.25, { life: 0.7, grav: -0.25, drag: 2, intensity: 2.2 }], flame: [Math.random() < 0.5 ? fx.c1 : fx.c2, 0.35, { life: 0.35, grav: -0.9, drag: 3, intensity: 2.4 }],
+      venom: [fx.c1, 0.12, { life: 0.6, grav: -0.15, drag: 2.5, intensity: 1.8 }], shield: [fx.c1, 0.1, { life: 0.5, grav: 0, drag: 3, intensity: 1.5 }] }[fx.kind];
+    aura.emit(1, _rimV.x, _rimV.y, _rimV.z, o[0], o[1], o[2]);
+  }
+}
+const _fxC = new THREE.Color();
 
 // poeira flutuando na luz
 const DUST = 320;
@@ -1363,7 +1434,10 @@ const S = {
   rally: { hitter: 0, rb: 0, canHit: false, net: false, serve: false, t: 0 },
   serveX: 0, serveBall: null, rtt: 0.08,
   streak: 0, lastLabel: 'SAQUE', ranked: null, oppName: null,
+  format: 1, games: { '1': 0, '-1': 0 }, gameNo: 1, gameScores: [], matchFirst: 1,   // 1 game, MD3 ou MD5
 };
+const FORMATS = { 1: { short: '1 GAME', long: 'Duelo: 1 game de 11' }, 3: { short: 'MD3', long: 'Melhor de 3 games' }, 5: { short: 'MD5', long: 'Melhor de 5 games' } };
+const gamesNeeded = () => Math.ceil(S.format / 2);
 const me = { x: 0, y: TH + 0.2, z: HL + 0.4, prevDepth: HL + 0.4 };
 const opp = { x: 0, y: TH + 0.2, z: -(HL + 0.4), tx: 0, ty: TH + 0.2, tz: -(HL + 0.4) };
 const bot = { x: 0, y: TH + 0.2, z: -(HL + 0.35), predX: 0, react: 0, served: false, lunge: 0, serveAt: 1 };
@@ -1383,8 +1457,9 @@ function onPointer(e) {
   const r = canvas.getBoundingClientRect();
   let y = e.clientY;
   if (e.pointerType === 'touch') y -= Math.min(70, r.height * 0.08);
-  pointer.nx = ((e.clientX - r.left) / r.width) * 2 - 1;
-  pointer.ny = ((y - r.top) / r.height) * 2 - 1;
+  const sm = cfg.sensMove || 1;                      // sensibilidade: a raquete anda mais (ou menos) por movimento
+  pointer.nx = clamp((((e.clientX - r.left) / r.width) * 2 - 1) * sm, -1.7, 1.7);
+  pointer.ny = clamp(0.25 + ((((y - r.top) / r.height) * 2 - 1) - 0.25) * sm, -1.6, 1.6);
   const t = performance.now() / 1000;
   pointer.hist.push({ t, hx: (e.clientX - r.left) / r.height, hy: (y - r.top) / r.height });
   while (pointer.hist.length > 40 || (pointer.hist.length > 2 && t - pointer.hist[0].t > 0.3)) pointer.hist.shift();
@@ -1401,8 +1476,8 @@ function swipeVel() {
   let old = null;
   for (let i = h.length - 1; i >= 0; i--) { if (last.t - h[i].t <= 0.1) old = h[i]; else break; }
   if (!old || last.t - old.t < 0.012) return { x: 0, up: 0 };
-  const dt = last.t - old.t;
-  return { x: (last.hx - old.hx) / dt, up: -(last.hy - old.hy) / dt };
+  const dt = last.t - old.t, k = cfg.sensSwing || 1;   // sensibilidade da batida
+  return { x: (last.hx - old.hx) / dt * k, up: -(last.hy - old.hy) / dt * k };
 }
 
 function updateMyPaddle(dt) {
@@ -1460,6 +1535,7 @@ function applyHit(side, B, shot, serve) {
   trailColor.setHex(TRAIL_COLORS[shot.label] || 0x22ff88);
   showLabel(shot.label);
   sfx('hit', shot.label, B, clamp(Math.hypot(...shot.v) / 11, 0.12, 1), (side === S.mySide ? myRacket : oppRacket).sound);
+  recEvent('hit', B, clamp(Math.hypot(...shot.v) / 11, 0.12, 1), { label: shot.label, side, speed: Math.hypot(...shot.v) });
   fxHit(side, B, shot.label);
   if (S.mode === 'solo' && side !== sideOfBot()) botPredict();
 }
@@ -1487,13 +1563,21 @@ function evalEvent(e) {
 }
 
 function awardPoint(winner, reason) {
-  if (winner) S.score[winner]++;
-  if (S.mode === 'online') send({ t: 'point', winner, reason, score: S.score });
-  onPoint(winner, reason);
+  let hl = false;
+  if (winner) {
+    const info = hlInfo(winner, reason);
+    S.score[winner]++;
+    // ponto bonito ganha replay na hora (menos no ponto que fecha o game: esse fica para o fim)
+    hl = info.score >= HL_INSTANT && !isGameOver() && totalPts() - RP.lastReplayPt >= 3;
+  }
+  if (S.mode === 'online') send({ t: 'point', winner, reason, score: S.score, hl });
+  onPoint(winner, reason, hl);
 }
 
-function onPoint(winner, reason) {
+function onPoint(winner, reason, hl = false) {
   S.phase = 'point'; S.phaseT = 0;
+  recPoint(winner, reason);
+  if (winner && hl && (S.mode === 'online' || cfg.replays)) { RP.pending = true; RP.lastReplayPt = totalPts(); }
   if (!winner) {                                  // LET: o saque é repetido, ninguém pontua
     showMsg('LET', 'o saque tocou na rede, repete');
     crowdVoice('ohh', 0.35);
@@ -1526,17 +1610,27 @@ function isGameOver() {
   const a = S.score['1'], b = S.score['-1'];
   return (a >= POINT_TO_WIN || b >= POINT_TO_WIN) && Math.abs(a - b) >= 2;
 }
-function matchPointFor() {
+const gameWinner = () => S.score['1'] > S.score['-1'] ? 1 : -1;
+// a partida acaba neste ponto? (o game acabou e quem ganhou chega ao número de games)
+const isMatchOver = () => isGameOver() && S.games[String(gameWinner())] + 1 >= gamesNeeded();
+function matchPointFor() {               // quem fecha o game no próximo ponto
   const a = S.score['1'], b = S.score['-1'];
   if (a >= POINT_TO_WIN - 1 && a - b >= 1) return 1;
   if (b >= POINT_TO_WIN - 1 && b - a >= 1) return -1;
   return 0;
 }
+const isMatchPoint = sd => sd !== 0 && S.games[String(sd)] + 1 >= gamesNeeded();
 
 function nextPoint() {
-  if (isGameOver()) { S.phase = 'over'; S.ballVisible = false; showOver(); return; }
+  if (isGameOver()) {                     // fim do game: soma o game e vê se a partida acabou
+    const w = gameWinner();
+    S.games[String(w)]++; S.gameScores.push({ '1': S.score['1'], '-1': S.score['-1'] });
+    if (S.games[String(w)] >= gamesNeeded()) { S.phase = 'over'; S.ballVisible = false; showOver(); return; }
+    startGameBreak(w); return;
+  }
   S.server = computeServer();
   S.phase = 'serve'; S.phaseT = 0; S.serveBall = null;
+  recStart();
   S.serveX = S.server === S.mySide ? clamp(me.x, -0.6, 0.6) : (Math.random() - 0.5) * 0.8;
   bot.served = false; bot.serveAt = 0.9 + Math.random() * 0.8;
   trailPts.length = 0;
@@ -1550,8 +1644,26 @@ function serveBallPos() {
   return [S.serveX, TH + 0.2 + 0.2 * Math.abs(Math.sin(t * 2.4)), S.server * (HL + 0.12)];
 }
 
+function startGameBreak(w) {               // intervalo entre os games (MD3/MD5)
+  S.phase = 'gamebreak'; S.phaseT = 0; S.ballVisible = false;
+  const mine = w === S.mySide, g = S.gameScores[S.gameScores.length - 1];
+  const gm = S.games[String(S.mySide)], go = S.games[String(-S.mySide)];
+  showBanner(mine ? `GAME ${S.gameNo} É SEU!` : `GAME ${S.gameNo} DE ${oppLabel().toUpperCase()}`,
+    `${g[String(S.mySide)]} × ${g[String(-S.mySide)]} · games ${gm} × ${go}${isMatchPoint(w) ? ' · falta 1 game!' : ''}`, mine ? 'win' : 'lose', 3200);
+  crowdReact('point', 0.9); crowdEvent(w, 0.9, true);
+  if (typeof celebrate === 'function') celebrate(0.5);
+  stopRhythm(); updateHud();
+}
+function endGameBreak() {
+  S.gameNo++; S.score = { '1': 0, '-1': 0 };
+  S.firstServer = S.gameNo % 2 ? S.matchFirst : -S.matchFirst;   // o saque inicial alterna a cada game
+  nextPoint();
+  showMsg(`GAME ${S.gameNo}`, S.server === S.mySide ? 'seu saque' : 'saque do adversário');
+}
 function resetMatch(firstServer) {
+  if (typeof stopEnd === 'function') { stopEnd(); endReplay(false); RP.clips = []; RP.rec = null; RP.pending = false; RP.lastReplayPt = -9; }
   S.score = { '1': 0, '-1': 0 };
+  S.games = { '1': 0, '-1': 0 }; S.gameNo = 1; S.gameScores = []; S.matchFirst = firstServer;
   S.firstServer = firstServer;
   S.phase = 'point'; S.phaseT = -0.6;   // espera a câmera de entrada
   S.ballVisible = false; S.streak = 0;
@@ -1612,8 +1724,16 @@ function botStep(dt) {
 /* =====================================================================
    LOOP DA FÍSICA
    ===================================================================== */
+function beginInstantReplay() {
+  RP.pending = false;
+  const c = RP.rec;
+  if (!c || !c.done || c.frames.length < 20) { nextPoint(); return; }
+  recFinish();
+  S.phase = 'replay'; S.phaseT = 0; S.ballVisible = false;
+  startReplay(c, { mode: 'instant', title: 'REPLAY', onEnd: () => { if (S.phase === 'replay') nextPoint(); } });
+}
 function physicsStep(dt) {
-  if (S.phase === 'lobby' || S.phase === 'over') return;
+  if (S.phase === 'lobby' || S.phase === 'over' || S.phase === 'replay') return;
   S.phaseT += dt;
 
   if (S.phase === 'serve') {
@@ -1623,12 +1743,14 @@ function physicsStep(dt) {
       const bd = S.ball.p[2] * S.mySide, cd = me.z * S.mySide;
       if (me.prevDepth > bd && cd <= bd + 0.02 && Math.abs(me.x - S.ball.p[0]) < 0.29) playerHit(true);
     }
+  } else if (S.phase === 'gamebreak') {
+    if (S.phaseT > 3.6) endGameBreak();
   } else if (S.phase === 'rally' || S.phase === 'point') {
     const ev = [];
     stepBall(S.ball, dt, ev, true);
     for (const e of ev) {
-      if (e.t === 'table') { sfx('table', null, [e.x, TH, e.z], e.s / 4.2); fxBounce(e.x, e.z); }
-      else if (e.t === 'net') { sfx('net', null, [e.x, e.y, 0], e.graze ? 0.3 + e.s / 30 : e.s / 6); netHit(e); }
+      if (e.t === 'table') { sfx('table', null, [e.x, TH, e.z], e.s / 4.2); fxBounce(e.x, e.z); recEvent('table', [e.x, TH, e.z], e.s / 4.2); }
+      else if (e.t === 'net') { sfx('net', null, [e.x, e.y, 0], e.graze ? 0.3 + e.s / 30 : e.s / 6); netHit(e); recEvent('net', [e.x, e.y, 0], e.graze ? 0.3 + e.s / 30 : e.s / 6); }
       else if (e.t === 'floor' && e.s > 0.25) sfx('floor', null, [e.x, 0, e.z], e.s / 3.5);
     }
     if (S.phase === 'rally') {
@@ -1638,7 +1760,7 @@ function physicsStep(dt) {
       if (canSideHit(S.mySide) && inHitWindow(S.mySide, me)) playerHit(false);
     }
     if (S.phase === 'point' && S.phaseT > 1.0) S.ballVisible = false;
-    if (S.phase === 'point' && S.phaseT > 1.35) nextPoint();
+    if (S.phase === 'point' && S.phaseT > 1.35) { if (RP.pending) beginInstantReplay(); else nextPoint(); }
   }
   if (S.mode === 'solo') botStep(dt);
   me.prevDepth = me.z * S.mySide;
@@ -1712,7 +1834,7 @@ function joinRoom(code, tries = 0) {
 }
 function setupConn(c) {
   conn = c;
-  c.on('open', () => { send({ t: 'hello', rk: myRacket.id, name: acct.profile ? acct.profile.name : null }); if (isHost) { send({ t: 'start', arena: A.id }); startGame('online', 1); } });
+  c.on('open', () => { send({ t: 'hello', rk: myRacket.id, tag: myTag(), name: acct.profile ? acct.profile.name : null }); if (isHost) { const f = S.ranked ? 1 : pickState.fmt; send({ t: 'start', arena: A.id, fmt: f }); startGame('online', 1, f); } });
   c.on('data', onMsg);
   c.on('close', () => onDisconnect());
   c.on('error', () => onDisconnect());
@@ -1727,14 +1849,15 @@ function onDisconnect() {
 function onMsg(m) {
   if (!m || typeof m !== 'object') return;
   switch (m.t) {
-    case 'start': if (m.arena && arenaById(m.arena).id !== A.id) buildArena(m.arena); startGame('online', -1); break;
-    case 'hello': if (RACKETS.some(r => r.id === m.rk)) setPaddle('op', racketById(m.rk)); if (typeof m.name === 'string' && !S.ranked) S.oppName = m.name.slice(0, 20); refreshNames(); updateHud(); break;
+    case 'start': if (m.arena && arenaById(m.arena).id !== A.id) buildArena(m.arena); startGame('online', -1, S.ranked ? 1 : ([1, 3, 5].includes(m.fmt) ? m.fmt : 1)); break;
+    case 'hello': if (RACKETS.some(r => r.id === m.rk)) setPaddle('op', racketById(m.rk), cleanTag(m.tag)); if (typeof m.name === 'string' && !S.ranked) S.oppName = m.name.slice(0, 20); refreshNames(); updateHud(); break;
     case 'pad':
       opp.tx = m.x; opp.ty = m.y; opp.tz = m.z;
       S.serveBall = m.b || null;
       break;
     case 'hit': {
       if (S.phase === 'lobby' || S.phase === 'over') return;
+      if (RP.play && S.phase === 'replay') endReplay(true);     // o adversário já sacou: fecha o replay
       applyHit(m.side, m.p, { v: m.v, w: m.w, label: m.label }, m.serve);
       const ff = Math.min(S.rtt / 2, 0.2) * TIME_SCALE;   // compensa atraso da rede
       for (let t = 0; t < ff; t += DT) {
@@ -1746,8 +1869,9 @@ function onMsg(m) {
     }
     case 'point':
       S.score = { '1': m.score['1'], '-1': m.score['-1'] };
-      onPoint(m.winner, m.reason);
+      onPoint(m.winner, m.reason, !!m.hl);
       break;
+    case 'rskip': if (RP.play && RP.play.mode === 'instant') { RP.play.skipOpp = true; if (RP.play.skipMe) endReplay(); } break;
     case 'ping': send({ t: 'pong', ts: m.ts }); break;
     case 'pong': {
       const rtt = (performance.now() - m.ts) / 1000;
@@ -1755,7 +1879,7 @@ function onMsg(m) {
       $('ping').textContent = `ping ${Math.round(S.rtt * 1000)} ms`;
       break;
     }
-    case 'rematch': resetMatch(-S.firstServer); break;
+    case 'rematch': resetMatch(-S.matchFirst); break;
     case 'chat': recvChat(m); break;
   }
 }
@@ -1779,6 +1903,7 @@ let crowdBus = null, murmurGain = null, applauseGain = null, clapGroupBuf = null
 const IMP = {};
 let muted = store.get('pp_mute', '0') === '1';
 let sampleBus = null, sfxSend = null, crowdSendG = null, ambGain = null, ambNodes = [];
+const VOL = { fx: [], crowd: null, music: null, ui: null, musicDuck: null };   // volumes por tipo de som
 // som de cada cenário: quanto eco, tamanho da torcida e ambiente (ondas do mar, cidade)
 function applyArenaAudio() {
   if (!actx || !A.def) return;
@@ -1809,7 +1934,7 @@ function boom(v = 0.6) {                       // estouro grave (fogos / pirotec
   const t = actx.currentTime, src = actx.createBufferSource(); src.buffer = noiseBuf; src.playbackRate.value = 0.5;
   const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(900, t); lp.frequency.exponentialRampToValueAtTime(120, t + 0.6);
   const g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35 * v, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
-  src.connect(lp).connect(g).connect(crowdBus); src.start(t, Math.random() * 2); src.stop(t + 1);
+  src.connect(lp).connect(g).connect(sfxBus); src.start(t, Math.random() * 2); src.stop(t + 1);
 }
 // Sons reais da bolinha (gravados): baixados do GitHub (CDN com reserva) e decodificados ao ativar o som.
 // Se não carregarem, o jogo usa os sons sintetizados.
@@ -1866,23 +1991,27 @@ function ensureAudio() {
     actx = new (window.AudioContext || window.webkitAudioContext)();
     const comp = actx.createDynamicsCompressor();
     comp.threshold.value = -12; comp.ratio.value = 3; comp.attack.value = 0.002; comp.release.value = 0.15;
-    master = actx.createGain(); master.gain.value = muted ? 0 : 0.9;
+    master = actx.createGain(); master.gain.value = muted ? 0 : volGain(cfg.vMaster);
     master.connect(comp).connect(actx.destination);
+    const mk = () => { const g = actx.createGain(); g.connect(master); return g; };
+    VOL.fx = [mk(), mk()]; VOL.crowd = mk(); VOL.music = mk(); VOL.ui = mk();
+    VOL.musicDuck = actx.createGain(); VOL.musicDuck.connect(VOL.music);
     // reverb de ginásio
     const rev = actx.createConvolver(); rev.buffer = makeIR(1.7);
     const send = actx.createGain(); send.gain.value = 0.28; sfxSend = send;
     const ret = actx.createGain(); ret.gain.value = 0.55;
     sfxBus = actx.createGain();
-    sfxBus.connect(master); sfxBus.connect(send).connect(rev).connect(ret).connect(master);
+    rev.connect(ret).connect(master);
+    sfxBus.connect(VOL.fx[0]); VOL.fx[0].connect(send).connect(rev);
     // sons gravados já têm o ambiente da sala: vão quase secos
     sampleBus = actx.createGain(); sampleBus.gain.value = 1.15;
     const sSend = actx.createGain(); sSend.gain.value = 0.1;
-    sampleBus.connect(master); sampleBus.connect(sSend).connect(rev);
+    sampleBus.connect(VOL.fx[1]); VOL.fx[1].connect(sSend).connect(rev);
     // barramento da torcida (com bastante eco de ginásio)
     crowdBus = actx.createGain(); crowdBus.gain.value = 1;
     const crowdSend = actx.createGain(); crowdSend.gain.value = 0.5; crowdSendG = crowdSend;
-    ambGain = actx.createGain(); ambGain.gain.value = 1; ambGain.connect(master);
-    crowdBus.connect(master); crowdBus.connect(crowdSend).connect(rev);
+    ambGain = actx.createGain(); ambGain.gain.value = 1; ambGain.connect(VOL.crowd);
+    crowdBus.connect(VOL.crowd); VOL.crowd.connect(crowdSend).connect(rev);
     // bancos de sons (4 variações cada para não soar repetitivo)
     const bank = (modes, o) => [0, 1, 2, 3].map(() => synthImpact(modes, o));
     IMP.table = bank([[2350, 0.011, 1], [3950, 0.007, 0.55], [5700, 0.004, 0.3], [1180, 0.018, 0.35], [430, 0.03, 0.3], [190, 0.045, 0.2]], { click: 0.8, clickLP: 0.6 });
@@ -1917,7 +2046,9 @@ function ensureAudio() {
     clapGroupBuf = makeClaps(0.25, 70, 0.045, false);
     decodeSamples();
     applyArenaAudio();
-  } catch (e) { actx = null; }
+    applyVolumes();
+    music.start();
+  } catch (e) { console.warn('audio', e); actx = null; }
 }
 // gera palmas: cada palma é um estalo curto de ruído com timbre, força e lado aleatórios
 function makeClaps(sec, count, spread, wrap) {
@@ -2069,7 +2200,7 @@ function tone(freq, dur, vol, type = 'triangle', delay = 0) {
   const o = actx.createOscillator(), g = actx.createGain();
   o.type = type; o.frequency.setValueAtTime(freq, t0);
   g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  o.connect(g).connect(master); o.start(t0); o.stop(t0 + dur + 0.02);
+  o.connect(g).connect(VOL.ui || master); o.start(t0); o.stop(t0 + dur + 0.02);
 }
 function sfx(k, label, pos, s = 0.5, snd) {
   if (!actx) return;
@@ -2086,9 +2217,80 @@ function sfx(k, label, pos, s = 0.5, snd) {
 }
 function setMuted(v) {
   muted = v; store.set('pp_mute', v ? '1' : '0');
-  if (master) master.gain.value = v ? 0 : 0.9;
+  applyVolumes();
   $('btnSound').textContent = v ? '🔇' : '🔊';
 }
+function applyVolumes() {
+  if (!actx) return;
+  const t = actx.currentTime, set = (n, v) => n && n.gain.setTargetAtTime(v, t, 0.05);
+  set(master, muted ? 0 : volGain(cfg.vMaster));
+  for (const g of VOL.fx) set(g, volGain(cfg.vFx));
+  set(VOL.crowd, volGain(cfg.vCrowd)); set(VOL.music, volGain(cfg.vMusic) * 0.55); set(VOL.ui, volGain(cfg.vUi));
+  music.duck();
+}
+/* ---------- música: synthwave tranquilo, gerado no navegador (sem arquivos) ----------
+   Am – F – C – G a 96 bpm: pad, baixo, arpejo e bateria leve. No menu toca mais alto;
+   durante a partida fica baixinho para não atrapalhar o som da bolinha. */
+const music = (() => {
+  const BPM = 96, STEP = 60 / BPM / 4;
+  const CH = [[57, 60, 64, 45], [53, 57, 60, 41], [55, 60, 64, 48], [55, 59, 62, 43]];   // acordes + nota do baixo
+  const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+  let timer = 0, next = 0, step = 0;
+  function note(f, t, dur, type, vol, cut, out) {
+    const o = actx.createOscillator(), g = actx.createGain(), lp = actx.createBiquadFilter();
+    o.type = type; o.frequency.value = f; lp.type = 'lowpass'; lp.frequency.value = cut;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.02, dur * 0.3));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(lp).connect(g).connect(out); o.start(t); o.stop(t + dur + 0.05);
+  }
+  function pad(ch, t, dur, out) {
+    for (const m of ch.slice(0, 3)) for (const d of [-6, 6]) {
+      const o = actx.createOscillator(), g = actx.createGain(), lp = actx.createBiquadFilter();
+      o.type = 'sawtooth'; o.frequency.value = mtof(m); o.detune.value = d;
+      lp.type = 'lowpass'; lp.frequency.setValueAtTime(500, t); lp.frequency.linearRampToValueAtTime(1100, t + dur * 0.5); lp.frequency.linearRampToValueAtTime(600, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.018, t + 0.6); g.gain.setValueAtTime(0.018, t + dur - 0.5); g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.2);
+      o.connect(lp).connect(g).connect(out); o.start(t); o.stop(t + dur + 0.3);
+    }
+  }
+  function drum(kind, t, out) {
+    if (kind === 'kick') {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.14);
+      g.gain.setValueAtTime(0.32, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+      o.connect(g).connect(out); o.start(t); o.stop(t + 0.3); return;
+    }
+    const s = actx.createBufferSource(); s.buffer = noiseBuf;
+    const f = actx.createBiquadFilter(), g = actx.createGain(), hat = kind === 'hat';
+    f.type = hat ? 'highpass' : 'bandpass'; f.frequency.value = hat ? 7000 : 1800; f.Q.value = hat ? 0.7 : 0.9;
+    const dur = hat ? 0.05 : 0.16, v = hat ? 0.05 : 0.11;
+    g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f).connect(g).connect(out); s.start(t, Math.random() * 2); s.stop(t + dur + 0.02);
+  }
+  function schedule() {
+    if (!actx || cfg.vMusic <= 0 || muted) { next = 0; return; }
+    const out = VOL.musicDuck;
+    if (!next || next < actx.currentTime) { next = actx.currentTime + 0.1; step = 0; }
+    while (next < actx.currentTime + 0.25) {
+      const bar = Math.floor(step / 16) % 4, s = step % 16, ch = CH[bar], t = next;
+      if (s === 0) pad(ch, t, STEP * 16, out);
+      if ([0, 3, 6, 8, 11, 14].includes(s)) note(mtof(ch[3] + (s === 6 || s === 14 ? 12 : 0)), t, STEP * 1.6, 'square', 0.05, 380, out);
+      if (s % 2 === 0) note(mtof(ch[(s / 2) % 3] + 12), t, STEP * 1.8, 'triangle', 0.035, 2600, out);
+      if (s === 0 || s === 8 || (s === 10 && bar === 3)) drum('kick', t, out);
+      if (s === 4 || s === 12) drum('snare', t, out);
+      if (s % 4 === 2) drum('hat', t, out);
+      next += STEP; step++;
+    }
+  }
+  return {
+    start() { if (!timer) timer = setInterval(schedule, 60); schedule(); this.duck(); },
+    duck() {                                    // volume pelo momento: menu cheio, partida baixinho
+      if (!actx || !VOL.musicDuck) return;
+      const v = S.phase === 'lobby' ? 1 : S.phase === 'over' ? 0.7 : 0.32;
+      VOL.musicDuck.gain.setTargetAtTime(v, actx.currentTime, 0.6);
+    },
+  };
+})();
+document.addEventListener('pointerdown', () => ensureAudio(), { capture: true });
 
 /* =====================================================================
    EFEITOS
@@ -2184,10 +2386,11 @@ function drawJumbo() {
     const srv = S.phase === 'serve' ? S.server : computeServer();
     g.fillStyle = '#ffd34d'; g.beginPath(); g.arc(srv === S.mySide ? w * 0.25 - 110 : w * 0.75 + 110, 120, 12, 0, 6.3); g.fill();
   }
-  const mp = matchPointFor();
+  const mp = S.phase === 'gamebreak' ? 0 : matchPointFor();
   g.font = '800 34px system-ui';
-  if (mp && inGame) { g.fillStyle = '#ff2a55'; g.fillText('MATCH POINT', w / 2, 355); }
-  else { g.fillStyle = 'rgba(255,255,255,.5)'; g.fillText(`ATÉ ${POINT_TO_WIN} PONTOS`, w / 2, 355); }
+  if (mp && inGame) { g.fillStyle = '#ff2a55'; g.fillText(isMatchPoint(mp) ? 'MATCH POINT' : 'GAME POINT', w / 2, 355); }
+  else { g.fillStyle = 'rgba(255,255,255,.5)'; g.fillText(S.format > 1 ? `GAME ${S.gameNo} · ${FORMATS[S.format].long.toUpperCase()}` : `ATÉ ${POINT_TO_WIN} PONTOS`, w / 2, 355); }
+  if (S.format > 1) { g.font = '800 30px system-ui'; g.fillStyle = '#ffd34d'; g.fillText(`GAMES  ${S.games[String(S.mySide)]} × ${S.games[String(-S.mySide)]}`, w / 2, 100); }
   for (let y = 0; y < h; y += 3) { g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(0, y, w, 1); }
   jumboTex.needsUpdate = true;
 }
@@ -2199,25 +2402,35 @@ function updateHud() {
   const nextSrv = S.phase === 'serve' ? S.server : computeServer();
   $('srvL').classList.toggle('on', inGame && nextSrv === S.mySide);
   $('srvR').classList.toggle('on', inGame && nextSrv !== S.mySide);
-  $('tag').classList.toggle('show', inGame && matchPointFor() !== 0);
+  const mp = inGame && S.phase !== 'gamebreak' ? matchPointFor() : 0;
+  $('tag').classList.toggle('show', mp !== 0);
+  if (mp) $('tag').textContent = isMatchPoint(mp) ? 'MATCH POINT' : 'GAME POINT';
+  const pips = sd => Array.from({ length: gamesNeeded() }, (_, i) => `<i class="${i < S.games[String(sd)] ? 'on' : ''}"></i>`).join('');
+  if ($('gmsL')) {
+    $('gmsL').innerHTML = S.format > 1 ? pips(S.mySide) : ''; $('gmsR').innerHTML = S.format > 1 ? pips(-S.mySide) : '';
+    $('fmtTag').textContent = S.format > 1 ? `GAME ${S.gameNo} · ${FORMATS[S.format].short}` : '';
+  }
   updateStreak();
   drawJumbo();
 }
 
 function showOver() {
   const mine = S.score[String(S.mySide)], theirs = S.score[String(-S.mySide)];
-  const won = mine > theirs;
+  const gm = S.games[String(S.mySide)], go = S.games[String(-S.mySide)];
+  const won = gm > go;
+  music.duck();
   $('overTitle').textContent = won ? 'Você venceu! 🏆' : (S.mode === 'solo' ? 'O computador venceu' : `${S.oppName || 'Seu amigo'} venceu`);
-  $('overScore').textContent = `${mine} × ${theirs}`;
+  $('overScore').textContent = S.format > 1
+    ? `${FORMATS[S.format].short}: ${gm} × ${go} em games (${S.gameScores.map(g => `${g[String(S.mySide)]}-${g[String(-S.mySide)]}`).join(', ')})`
+    : `${mine} × ${theirs}`;
   if (won) {                                      // vitórias liberam a raquete lendária
     const before = winCount(); store.set('pp_wins', String(before + 1));
-    for (const r of RACKETS) if (r.unlock && before < r.unlock && before + 1 >= r.unlock) setTimeout(() => toast(`🐉 Você liberou a raquete ${r.name}!`), 2200);
+    for (const r of RACKETS) { const u = rcfg(r).unlock_wins; if (u && before < u && before + 1 >= u && !rcfg(r).free) setTimeout(() => toast(`🐉 Você liberou a raquete ${r.name}!`), 2200); }
   }
-  const lock = RACKETS.find(r => r.unlock && !isUnlocked(r));
-  $('overScore').textContent += lock ? ` · vitórias: ${winCount()}/${lock.unlock} para liberar a ${lock.name}` : '';
-  clearTimeout(overTimer); overTimer = setTimeout(() => { if (S.phase === 'over') $('over').classList.remove('hidden'); }, 1400);
+  const lock = RACKETS.find(r => isListed(r) && !isUnlocked(r) && rcfg(r).unlock_wins);
+  $('overScore').textContent += lock ? ` · vitórias: ${totalWins()}/${rcfg(lock).unlock_wins} para liberar a ${lock.name}` : '';
   overRanked(mine, theirs);
-  fxWin(won);
+  endSequence(won);                                 // comemoração, fogos e melhores momentos; depois o resumo
   updateHud();
 }
 
@@ -2288,7 +2501,7 @@ function botChatReply(c, i) {
   else if (c === 1 && i === 3 && Math.random() < 0.5) botSay(2, 1);
 }
 function botOnPoint(mine, reason, rally, winnerShot) {
-  if (isGameOver()) { botSay(3, 1, 1600); if (mine) botSay(3, 2, 3200); return; }
+  if (isMatchOver()) { botSay(3, 1, 1600); if (mine) botSay(3, 2, 3200); return; }
   if (!mine) {                                   // CPU fez o ponto
     if (Math.random() < 0.3) { const r = pick([[1, 3], [2, 0], [2, 3], [1, 0]]); botSay(r[0], r[1]); }
   } else if (winnerShot === 'SMASH!' && Math.random() < 0.5) botSay(0, 3);
@@ -2333,6 +2546,7 @@ function updateCamera(dt, now) {
     camera.position.set(px, py, pz);
     camera.lookAt(lx, ly, lz);
   }
+  if (cam.shake > 0 && !cfg.shake) cam.shake = 0;
   if (cam.shake > 0) {
     const s = cam.shake * cam.shake * 0.02;
     camera.position.x += (Math.random() - 0.5) * s; camera.position.y += (Math.random() - 0.5) * s;
@@ -2375,8 +2589,8 @@ function perfMonitor(rawDt) {
 /* =====================================================================
    FLUXO DE TELAS
    ===================================================================== */
-function startGame(mode, side) {
-  S.mode = mode; S.mySide = side;
+function startGame(mode, side, format = 1) {
+  S.mode = mode; S.mySide = side; S.format = [1, 3, 5].includes(format) ? format : 1;
   me.z = side * (HL + 0.4); me.prevDepth = HL + 0.4;
   opp.x = opp.tx = 0; opp.z = opp.tz = -side * (HL + 0.4);
   bot.x = 0; bot.z = -side * (HL + 0.35);
@@ -2388,19 +2602,20 @@ function startGame(mode, side) {
   cam.from.copy(camera.position); cam.fromLook.set(0, TH, 0); cam.introT = cam.introDur;
   resetMatch(1);
   crowd.mySide = side; if (A.crowdView) A.crowdView.setTeams(side);
-  crowd.excite = 0.7; crowdReact('start');
+  crowd.excite = 0.7; crowdReact('start'); music.duck();
   if (mode === 'solo') {                        // a CPU escolhe uma raquete diferente a cada partida
     const pool = RACKETS.filter(r => r.id !== myRacket.id);
-    setPaddle('op', pool[(Math.random() * pool.length) | 0]);
+    setPaddle('op', pool[(Math.random() * pool.length) | 0], 'CPU');
     botSay(3, 0, 2600);
   }
   updateHud();
-  setTimeout(() => { if (S.mode) addChat('sys', `${A.def.emoji} ${A.def.name} · você: ${myRacket.name} × ${mode === 'solo' ? 'CPU' : 'amigo'}: ${oppRacket.name}`); }, 900);
+  setTimeout(() => { if (S.mode) addChat('sys', `${A.def.emoji} ${A.def.name} · ${FORMATS[S.format].long} · você: ${myRacket.name} × ${oppLabel()}: ${oppRacket.name}`); }, 900);
   if (mode === 'online' && location.search.includes('sala=')) history.replaceState(null, '', location.pathname);
 }
 function goMenu() {
   const wasOnline = S.mode === 'online';
   S.mode = null; S.phase = 'lobby'; S.ballVisible = false; S.ranked = null; S.oppName = null;
+  stopEnd(); endReplay(false); RP.pending = false; RP.rec = null; S.paused = false; music.duck();
   if (typeof stopQueue === 'function') stopQueue(false);
   stopRhythm(); qc.mode = 'closed'; qcRender(); $('chatFeed').innerHTML = '';
   if (wasOnline) cleanupNet();
@@ -2413,14 +2628,14 @@ function goMenu() {
 $('btnCreate').onclick = () => { ensureAudio(); lockedNotice(); createRoom(); };
 $('btnJoin').onclick = () => { ensureAudio(); lockedNotice(); joinRoom($('inCode').value); };
 $('inCode').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom($('inCode').value); });
-$('btnSolo').onclick = () => { ensureAudio(); lockedNotice(); cleanupNet(); startGame('solo', 1); };
+$('btnSolo').onclick = () => { ensureAudio(); lockedNotice(); cleanupNet(); startGame('solo', 1, pickState.fmt); };
 $('btnCancel').onclick = $('btnCancel2').onclick = () => { cleanupNet(); showPanel('menu'); lobbyMsg(''); };
 $('btnCopy').onclick = async () => {
   const v = $('linkTxt').value;
   try { await navigator.clipboard.writeText(v); } catch (e) { $('linkTxt').select(); document.execCommand('copy'); }
   $('btnCopy').textContent = 'Link copiado!'; setTimeout(() => $('btnCopy').textContent = 'Copiar link', 1500);
 };
-$('btnRematch').onclick = () => { if (S.ranked) { goMenu(); startRanked(); return; } if (S.mode === 'online') send({ t: 'rematch' }); resetMatch(-S.firstServer); };
+$('btnRematch').onclick = () => { if (S.ranked) { goMenu(); startRanked(); return; } if (S.mode === 'online') send({ t: 'rematch' }); resetMatch(-S.matchFirst); };
 $('btnMenu').onclick = () => goMenu();
 $('quit').onclick = () => goMenu();
 $('btnSound').onclick = () => { ensureAudio(); setMuted(!muted); };
@@ -2428,7 +2643,7 @@ $('btnQuality').onclick = () => { perf.checked = true; applyQuality(Q.level === 
 /* =====================================================================
    MENU: escolha da raquete e do cenário
    ===================================================================== */
-const pickState = { rk: Math.max(0, RACKETS.indexOf(myRacket)), ar: Math.max(0, ARENAS.findIndex(a => a.id === store.get('pp_arena', 'neon'))) };
+const pickState = { rk: Math.max(0, RACKETS.indexOf(myRacket)), ar: Math.max(0, ARENAS.findIndex(a => a.id === store.get('pp_arena', 'neon'))), fmt: [1, 3, 5].includes(+store.get('pp_fmt', '1')) ? +store.get('pp_fmt', '1') : 1 };
 const thumbs = {};
 function makeThumbs() {                           // miniaturas 3D das raquetes (renderizadas uma vez)
   try {
@@ -2441,7 +2656,7 @@ function makeThumbs() {                           // miniaturas 3D das raquetes 
     const d2 = new THREE.DirectionalLight(0xff7ab0, 1.0); d2.position.set(-2, 0.5, -1); sc.add(d2);
     const c = new THREE.PerspectiveCamera(30, 150 / 190, 0.01, 10); c.position.set(0, -0.06, 0.8); c.lookAt(0, -0.06, 0);
     for (const r of RACKETS) {
-      const { root } = buildRacket(r, true, 1);
+      const { root } = buildRacket(r, true, 1, myTag());
       root.rotation.set(0.12, -0.5, -0.3); sc.add(root);
       tr.render(sc, c); thumbs[r.id] = tr.domElement.toDataURL('image/png');
       sc.remove(root); disposeRacket(root);
@@ -2456,19 +2671,21 @@ function renderPick() {
   $('rkName').textContent = r.name; $('rkTag').textContent = r.tag;
   $('stV').innerHTML = bars(r.speed); $('stE').innerHTML = bars(r.spin); $('stC').innerHTML = bars(r.ctrl);
   $('rkDesc').textContent = r.desc;
-  const locked = !isUnlocked(r);
+  const locked = !isUnlocked(r), c = rcfg(r);
   $('rkCard').classList.toggle('locked', locked);
   $('rkLock').classList.toggle('hidden', !locked);
-  if (locked) $('rkLock').textContent = `🔒 ${winCount()}/${r.unlock}`;
-  if (locked) $('rkDesc').textContent = `🔒 Vença ${r.unlock} partidas para liberar (você tem ${winCount()}). ` + r.desc;
+  if (locked) $('rkLock').textContent = c.unlock_wins ? `🔒 ${totalWins()}/${c.unlock_wins}` : '🔒 Exclusiva';
+  if (locked) $('rkDesc').textContent = `🔒 ${lockText(r)} ` + r.desc;
+  else if (grantedTo(r) && !c.free) $('rkDesc').textContent = '🎁 Liberada para você. ' + r.desc;
   $('vipTag').classList.toggle('hidden', !isVip());
-  $('rkDots').innerHTML = RACKETS.map((_, i) => `<i class="${i === pickState.rk ? 'on' : ''}"></i>`).join('');
+  $('rkDots').innerHTML = RACKETS.map((x, i) => isListed(x) ? `<i class="${i === pickState.rk ? 'on' : ''}"></i>` : '').join('');
   $('arEmoji').textContent = a.emoji; $('arName').textContent = a.name; $('arTag').textContent = a.tag;
   $('arDots').innerHTML = ARENAS.map((_, i) => `<i class="${i === pickState.ar ? 'on' : ''}"></i>`).join('');
+  document.querySelectorAll('#fmtSeg button').forEach(b => b.classList.toggle('on', +b.dataset.f === pickState.fmt));
 }
 function pickMove(k, d) {
   if (k === 'rk') {
-    pickState.rk = (pickState.rk + d + RACKETS.length) % RACKETS.length;
+    for (let i = 0; i < RACKETS.length; i++) { pickState.rk = (pickState.rk + d + RACKETS.length) % RACKETS.length; if (isListed(RACKETS[pickState.rk])) break; }
     const r = RACKETS[pickState.rk];
     if (isUnlocked(r)) { store.set('pp_racket', r.id); setPaddle('me', r); }
   } else {
@@ -2504,6 +2721,10 @@ function initLobbyUI() {
   .pk-lock { position: absolute; top: 6px; right: 8px; border-radius: 999px; background: rgba(0,0,0,.75); font-size: 10.5px; font-weight: 800; padding: 3px 8px; color: #ffd34d; }
   .dots { display: flex; gap: 4px; margin-top: 5px; } .dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.2); } .dots i.on { background: #ff4f8b; }
   .ar-emoji { font-size: 34px; width: 60px; text-align: center; flex: none; }
+  .seg { display: flex; gap: 6px; }
+  .seg button { flex: 1; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.05); color: #fff; border-radius: 12px; padding: 8px 4px; font-weight: 900; font-size: 15px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+  .seg button small { font-size: 10.5px; font-weight: 700; opacity: .6; }
+  .seg button.on { background: linear-gradient(180deg, rgba(255,61,127,.45), rgba(255,61,127,.2)); border-color: #ff4f8b; }
   details.howto summary { cursor: pointer; font-weight: 800; color: #ffd34d; }
   details.howto[open] summary { margin-bottom: 6px; }`;
   document.head.appendChild(st);
@@ -2525,9 +2746,14 @@ function initLobbyUI() {
       <div class="pk-card"><div class="ar-emoji" id="arEmoji"></div>
         <div class="pk-info"><div class="pk-name" id="arName"></div><div class="pk-tag" id="arTag"></div><div class="dots" id="arDots"></div></div></div>
       <button class="pk-arrow" data-k="ar" data-d="1" aria-label="Próximo cenário">›</button></div>
-    <div class="pk-note">No online, vale o cenário de quem cria a sala. Cada um usa a própria raquete.</div>`;
+    <div class="lo-t">PARTIDA</div>
+    <div class="seg" id="fmtSeg"><button data-f="1">Duelo<small>1 game de 11</small></button><button data-f="3">MD3<small>melhor de 3</small></button><button data-f="5">MD5<small>melhor de 5</small></button></div>
+    <div class="pk-note">No online, vale o cenário e o formato de quem cria a sala. Cada um usa a própria raquete. A ranqueada é sempre 1 game.</div>`;
   $('menu').prepend(wrap);
-  wrap.addEventListener('click', e => { const b = e.target.closest('.pk-arrow'); if (b) pickMove(b.dataset.k, +b.dataset.d); });
+  wrap.addEventListener('click', e => {
+    const b = e.target.closest('.pk-arrow'); if (b) pickMove(b.dataset.k, +b.dataset.d);
+    const f = e.target.closest('#fmtSeg button'); if (f) { pickState.fmt = +f.dataset.f; store.set('pp_fmt', String(pickState.fmt)); renderPick(); }
+  });
   const how = document.querySelector('.howto');
   if (how) {
     const d = document.createElement('details'); d.className = 'howto';
@@ -2572,13 +2798,14 @@ async function rpc(fn, args) {
 async function refreshProfile() {
   if (!acct.user) { acct.profile = null; renderAccount(); return; }
   try { acct.profile = await rpc('my_profile'); } catch (e) { console.warn(e); }
-  renderAccount(); refreshNames(); if (typeof renderPick === 'function') renderPick();
+  renderAccount(); refreshNames(); afterProfile();
 }
 async function initAccount() {
   initAccountUI();
   // quais logins estão ligados no Supabase (o Google precisa ser configurado no painel)
   fetch(SB_URL + '/auth/v1/settings', { headers: { apikey: SB_KEY } }).then(r => r.json()).then(j => { acct.providers.google = !!(j.external && j.external.google); renderAccount(); }).catch(() => { });
   const sb = await sbLoad(); if (!sb) { renderAccount('Servidor de contas indisponível agora.'); return; }
+  loadRacketCfg();
   // volta do login com Steam: o token de uso único vem depois do #
   const h = new URLSearchParams(location.hash.slice(1));
   if (h.get('steam_token') || h.get('steam_error')) {
@@ -2606,7 +2833,7 @@ async function loginGoogle() {
   const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });
   if (error) lobbyMsg('Login com Google indisponível: ' + error.message);
 }
-async function logout() { const sb = await sbLoad(); if (sb) await sb.auth.signOut(); acct.user = null; acct.profile = null; renderAccount(); refreshNames(); renderPick(); }
+async function logout() { const sb = await sbLoad(); if (sb) await sb.auth.signOut(); acct.user = null; acct.profile = null; renderAccount(); refreshNames(); afterProfile(); }
 async function editName() {
   const nm = prompt('Seu nome no jogo (3 a 20 caracteres):', acct.profile ? acct.profile.name : '');
   if (nm === null) return;
@@ -2620,6 +2847,7 @@ async function startRanked() {
   ensureAudio();
   if (!acct.user) { lobbyMsg('Entre com Steam ou Google para jogar ranqueada.'); $('acctCard').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
   if (queue.on) return;
+  if (acct.profile && acct.profile.banned) { lobbyMsg(`Sua conta está suspensa da ranqueada${acct.profile.ban_reason ? ': ' + acct.profile.ban_reason : '.'}`); return; }
   cleanupNet(); lockedNotice();
   queue.on = true; queue.t0 = performance.now();
   showPanel('rankedPanel'); setRankedText('Procurando adversário…', ''); $('rqCpu').classList.add('hidden');
@@ -2634,7 +2862,10 @@ async function queueStep() {
     const secs = Math.round((performance.now() - queue.t0) / 1000);
     setRankedText('Procurando adversário…', `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} · faixa de elo ±${Math.min(600, 100 + secs * 10)}`);
     if (secs >= 45) $('rqCpu').classList.remove('hidden');
-  } catch (e) { console.warn('fila', e); setRankedText('Sem conexão com o servidor', 'tentando de novo…'); }
+  } catch (e) {
+    if (/suspensa/.test(e.message)) { stopQueue(false); showPanel('menu'); lobbyMsg('Sua conta está suspensa da ranqueada.'); return; }
+    console.warn('fila', e); setRankedText('Sem conexão com o servidor', 'tentando de novo…');
+  }
   queue.timer = setTimeout(queueStep, 2000);
 }
 function stopQueue(leave = true) {
@@ -2700,6 +2931,7 @@ async function openRanking() {
       row.className = 'rk-row' + (r.me ? ' me' : '');
       const pos = document.createElement('span'); pos.className = 'rk-pos'; pos.textContent = i < 3 ? ['🥇', '🥈', '🥉'][i] : `${i + 1}º`;
       const nm = document.createElement('span'); nm.className = 'rk-name'; nm.textContent = r.name;
+      if (r.tag) { const tg = document.createElement('small'); tg.className = 'rk-tag'; tg.textContent = ' ' + r.tag; nm.appendChild(tg); }
       const dvs = document.createElement('span'); dvs.className = 'rk-div'; dvs.textContent = `${dv.icon} ${dv.name}`; dvs.style.color = dv.color;
       const el = document.createElement('span'); el.className = 'rk-elo'; el.textContent = r.rating;
       const wl = document.createElement('span'); wl.className = 'rk-wl'; wl.textContent = `${r.wins}V ${r.losses}D`;
@@ -2726,6 +2958,7 @@ function renderAccount(err) {
     $('acctAdmin').classList.toggle('hidden', !p.admin);
   } else if (acct.user) { $('acctName').textContent = 'Carregando…'; $('acctDiv').textContent = ''; $('acctElo').textContent = ''; }
   $('btnRanked').classList.toggle('dim', !acct.user);
+  renderAccountExtras();
 }
 function initAccountUI() {
   const st = document.createElement('style');
@@ -2756,7 +2989,7 @@ function initAccountUI() {
   .rk-row:nth-child(odd) { background: rgba(255,255,255,.04); }
   .rk-row.me { background: rgba(154,92,255,.25); }
   .rk-pos { font-weight: 900; text-align: center; } .rk-name { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rk-div { font-size: 12px; font-weight: 800; } .rk-elo { font-weight: 900; text-align: right; } .rk-wl { font-size: 12px; opacity: .7; text-align: right; }
+  .rk-div { font-size: 12px; font-weight: 800; } .rk-tag { font-size: 10px; font-weight: 900; color: #ffd34d; letter-spacing: .08em; } .rk-elo { font-weight: 900; text-align: right; } .rk-wl { font-size: 12px; opacity: .7; text-align: right; }
   #overElo { margin-top: 10px; font-size: 15px; line-height: 1.5; }`;
   document.head.appendChild(st);
   const card = document.createElement('div'); card.className = 'acct'; card.id = 'acctCard';
@@ -2790,7 +3023,716 @@ function initAccountUI() {
   renderAccount();
 }
 initAccount();
+/* ---------- regras das raquetes (banco) e perfil ---------- */
+async function loadRacketCfg() {
+  try {
+    const sb = await sbLoad(); if (!sb) return;
+    const { data, error } = await sb.from('racket_config').select('id,enabled,free,unlock_wins');
+    if (error || !data) return;
+    for (const k of Object.keys(RCFG)) delete RCFG[k];
+    for (const c of data) RCFG[c.id] = c;
+    afterProfile();
+  } catch (e) { console.warn('raquetes', e); }
+}
+let lastTagShown = myTag();
+function afterProfile() {
+  if (!isUnlocked(myRacket)) {                         // raquete tirada ou desligada: volta para uma liberada
+    const r = RACKETS.find(x => isUnlocked(x)) || RACKETS[0];
+    store.set('pp_racket', r.id); setPaddle('me', r); pickState.rk = RACKETS.indexOf(r);
+  }
+  const tg = myTag();
+  if (tg !== lastTagShown) { lastTagShown = tg; setPaddle('me', myRacket, tg); makeThumbs(); }
+  if (typeof renderPick === 'function') renderPick();
+}
+
+/* ---------- pequeno ajudante para montar telas sem innerHTML com dados de usuário ---------- */
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === 'class') el.className = v; else if (k === 'text') el.textContent = v;
+    else if (k.startsWith('on')) el[k] = v; else if (v === true) el.setAttribute(k, ''); else if (v !== false && v != null) el.setAttribute(k, v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) el.append(c.nodeType ? c : document.createTextNode(String(c)));
+  return el;
+}
+
+/* =====================================================================
+   CONFIGURAÇÕES (⚙️): controles, volumes, jogo e perfil
+   ===================================================================== */
+const pct = v => `${Math.round(v)}%`, times = v => `${(+v).toFixed(2)}×`;
+const CFG_UI = [
+  ['🎮 Controles', [
+    ['range', 'sensMove', 'Sensibilidade do movimento', 0.5, 2, 0.05, times, 'Quanto a raquete anda a cada movimento do mouse ou do dedo'],
+    ['range', 'sensSwing', 'Sensibilidade da batida', 0.6, 1.6, 0.05, times, 'Maior = a bola sai mais forte com o mesmo gesto'],
+  ]],
+  ['🔊 Som', [
+    ['vol', 'vMaster', 'Volume geral'], ['vol', 'vFx', 'Bolinha e raquete'], ['vol', 'vCrowd', 'Torcida e ambiente'],
+    ['vol', 'vMusic', 'Música'], ['vol', 'vUi', 'Avisos e chat'],
+  ]],
+  ['🏓 Jogo', [
+    ['toggle', 'replays', 'Replays dos pontos bonitos e melhores momentos'],
+    ['toggle', 'shake', 'Câmera treme no smash'],
+    ['toggle', 'showPing', 'Mostrar o ping no online'],
+    ['quality'],
+  ]],
+];
+function applyCfg() {
+  saveCfg(); applyVolumes();
+  const pg = $('ping'); if (pg) pg.style.display = cfg.showPing ? '' : 'none';
+}
+function openSettings(focus) {
+  ensureAudio();
+  const scr = $('cfgScreen'); scr.classList.remove('hidden');
+  if (S.mode === 'solo' && S.phase !== 'over') S.paused = true;   // no treino o jogo pausa
+  renderSettings();
+  if (focus === 'perfil') setTimeout(() => { const i = $('cfTag'); if (i) { i.scrollIntoView({ block: 'center' }); i.focus(); } }, 50);
+}
+function closeSettings() { $('cfgScreen').classList.add('hidden'); S.paused = false; }
+function renderSettings() {
+  const body = $('cfgBody'); body.textContent = '';
+  for (const [title, items] of CFG_UI) {
+    const sec = h('div', { class: 'cf-sec' }, h('div', { class: 'cf-t', text: title }));
+    for (const it of items) {
+      const [kind, key, label] = it;
+      if (kind === 'range' || kind === 'vol') {
+        const [min, max, step, fmt, hint] = kind === 'vol' ? [0, 100, 1, pct, ''] : it.slice(3);
+        const val = h('span', { class: 'cf-v', text: fmt(cfg[key]) });
+        const inp = h('input', { type: 'range', min, max, step, value: cfg[key], 'aria-label': label });
+        inp.oninput = () => { cfg[key] = +inp.value; val.textContent = fmt(cfg[key]); if (kind === 'vol') mute.textContent = cfg[key] > 0 ? '🔊' : '🔇'; applyCfg(); };
+        const mute = h('button', { class: 'cf-mute', title: 'Ligar/desligar', text: cfg[key] > 0 ? '🔊' : '🔇' });
+        mute.onclick = () => {
+          if (cfg[key] > 0) { cfg['_' + key] = cfg[key]; cfg[key] = 0; } else cfg[key] = cfg['_' + key] || CFG_DEF[key];
+          inp.value = cfg[key]; val.textContent = fmt(cfg[key]); mute.textContent = cfg[key] > 0 ? '🔊' : '🔇'; applyCfg();
+        };
+        sec.append(h('div', { class: 'cf-row' }, h('label', { class: 'cf-l' }, label, hint ? h('small', { text: hint }) : null),
+          h('div', { class: 'cf-ctl' }, kind === 'vol' ? mute : null, inp, val)));
+      } else if (kind === 'toggle') {
+        const cb = h('input', { type: 'checkbox' }); cb.checked = !!cfg[key];
+        cb.onchange = () => { cfg[key] = cb.checked; applyCfg(); };
+        sec.append(h('label', { class: 'cf-row cf-tg' }, h('span', { class: 'cf-l', text: label }), cb, h('i', { class: 'sw' })));
+      } else if (kind === 'quality') {
+        const mk = (lv, txt) => { const b = h('button', { class: 'cf-q' + (Q.level === lv ? ' on' : ''), text: txt }); b.onclick = () => { perf.checked = true; applyQuality(lv); renderSettings(); }; return b; };
+        sec.append(h('div', { class: 'cf-row' }, h('span', { class: 'cf-l', text: 'Gráficos' }), h('div', { class: 'cf-ctl' }, mk('alto', 'Alto (HD)'), mk('leve', 'Leve'))));
+      }
+    }
+    body.append(sec);
+  }
+  // perfil: nome (com conta) e sigla gravada na raquete
+  const p = acct.profile, sec = h('div', { class: 'cf-sec' }, h('div', { class: 'cf-t', text: '👤 Perfil' }));
+  if (p) {
+    const nm = h('input', { id: 'cfName', maxlength: 20, value: p.name, placeholder: 'Seu nome', autocomplete: 'off' });
+    const bn = h('button', { class: 'cf-save', text: 'Salvar nome' });
+    bn.onclick = async () => {
+      try { await rpc('set_display_name', { p_name: nm.value }); await refreshProfile(); toast('Nome atualizado'); }
+      catch (e) { toast(/3 a 20/.test(e.message) ? 'O nome precisa ter de 3 a 20 caracteres' : 'Não deu para mudar o nome'); }
+    };
+    sec.append(h('div', { class: 'cf-row' }, h('label', { class: 'cf-l', for: 'cfName', text: 'Nome no jogo' }), h('div', { class: 'cf-ctl' }, nm, bn)));
+  }
+  const tg = h('input', { id: 'cfTag', maxlength: 6, value: myTag(), placeholder: 'ANDREW', autocomplete: 'off', class: 'cf-tag' });
+  const prev = h('div', { class: 'cf-prev' });
+  const upd = () => { tg.value = cleanTag(tg.value); prev.textContent = tg.value ? `Na raquete: ${tg.value} · ${myRacket.name}` : `Sem sigla · ${myRacket.name}`; };
+  tg.oninput = upd; upd();
+  const bt = h('button', { class: 'cf-save', text: 'Gravar na raquete' });
+  bt.onclick = async () => {
+    const v = cleanTag(tg.value);
+    if (p) {
+      if (!v) { toast('A sigla precisa ter de 1 a 6 letras ou números'); return; }
+      try { await rpc('set_tag', { p_tag: v }); await refreshProfile(); } catch (e) { toast('Não deu para salvar a sigla'); return; }
+    } else store.set('pp_tag', v);
+    afterProfile(); toast(v ? `Sigla ${v} gravada na raquete` : 'Sigla removida');
+  };
+  sec.append(h('div', { class: 'cf-row' }, h('label', { class: 'cf-l', for: 'cfTag' }, 'Sigla na raquete', h('small', { text: 'Até 6 letras ou números. O adversário vê na sua raquete.' })), h('div', { class: 'cf-ctl' }, tg, bt)), prev);
+  if (!p) sec.append(h('div', { class: 'cf-note', text: 'Entre com Steam ou Google para guardar nome e sigla na sua conta (vale em qualquer aparelho).' }));
+  body.append(sec);
+}
+
+/* =====================================================================
+   PAINEL DO ADMIN: jogadores, raquetes e histórico
+   ===================================================================== */
+const ADM = { tab: 'users', list: [], sel: null };
+function openAdmin(tab = 'users') {
+  if (!acct.profile || !acct.profile.admin) return;
+  ADM.tab = tab; ADM.sel = null;
+  $('admScreen').classList.remove('hidden');
+  renderAdmin();
+}
+function admTabs() {
+  const t = (id, txt) => { const b = h('button', { class: 'adm-tab' + (ADM.tab === id ? ' on' : ''), text: txt }); b.onclick = () => { ADM.tab = id; ADM.sel = null; renderAdmin(); }; return b; };
+  return h('div', { class: 'adm-tabs' }, t('users', '👥 Jogadores'), t('rackets', '🏓 Raquetes'), t('log', '📜 Histórico'));
+}
+function renderAdmin() {
+  const box = $('admBody'); box.textContent = ''; box.append(admTabs());
+  const main = h('div', { class: 'adm-main' }); box.append(main);
+  if (ADM.tab === 'users') ADM.sel ? admUser(main) : admUsers(main);
+  else if (ADM.tab === 'rackets') admRackets(main);
+  else admLog(main);
+}
+async function admUsers(main) {
+  const q = h('input', { class: 'adm-q', placeholder: 'Buscar por nome, sigla, e-mail ou Steam ID', value: ADM.q || '' });
+  const go = h('button', { class: 'cf-save', text: 'Buscar' });
+  const list = h('div', { class: 'adm-list' }, h('p', { class: 'muted', text: 'Carregando…' }));
+  const load = async () => {
+    ADM.q = q.value;
+    try { ADM.list = await rpc('admin_list_users', { p_q: q.value, p_limit: 100 }) || []; }
+    catch (e) { list.textContent = ''; list.append(h('p', { class: 'muted', text: 'Não consegui carregar: ' + e.message })); return; }
+    list.textContent = '';
+    if (!ADM.list.length) { list.append(h('p', { class: 'muted', text: 'Ninguém encontrado.' })); return; }
+    list.append(h('div', { class: 'adm-count', text: `${ADM.list.length} jogador(es)` }));
+    for (const u of ADM.list) {
+      const row = h('button', { class: 'adm-row' + (u.banned ? ' ban' : '') },
+        h('span', { class: 'adm-nm' }, h('b', { text: u.name }), h('span', { class: 'adm-chip', text: u.tag || '—' })),
+        h('span', { class: 'adm-pv', text: u.provider === 'steam' ? 'Steam' : u.provider === 'google' ? 'Google' : u.provider }),
+        h('span', { class: 'adm-elo', text: `${u.rating ?? '—'} elo` }),
+        h('span', { class: 'adm-wl', text: `${u.wins || 0}V ${u.losses || 0}D` }),
+        h('span', { class: 'adm-bd' }, u.admin ? h('i', { class: 'b-adm', text: 'ADMIN' }) : null, u.banned ? h('i', { class: 'b-ban', text: 'BANIDO' }) : null,
+          (u.rackets || []).length ? h('i', { class: 'b-rk', text: `🎁 ${(u.rackets || []).length}` }) : null));
+      row.onclick = () => { ADM.sel = u; renderAdmin(); };
+      list.append(row);
+    }
+  };
+  go.onclick = load; q.onkeydown = e => { if (e.key === 'Enter') load(); };
+  main.append(h('div', { class: 'adm-search' }, q, go), list);
+  load();
+}
+function admUser(main) {
+  const u = ADM.sel, fmtD = d => d ? new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+  const back = h('button', { class: 'adm-back', text: '← Voltar para a lista' }); back.onclick = () => { ADM.sel = null; renderAdmin(); };
+  const info = h('div', { class: 'adm-info' },
+    ...[['Entrou com', u.provider === 'steam' ? `Steam (${u.steam_id})` : (u.email || u.provider)], ['Criado em', fmtD(u.created_at)], ['Último login', fmtD(u.last_login)],
+      ['Partidas ranqueadas', `${u.games || 0} (${u.wins || 0}V ${u.losses || 0}D, ${u.abandons || 0} abandonos)`], ['Maior elo', u.peak ?? '—'], ['ID', u.id]]
+      .map(([k, v]) => h('div', {}, h('small', { text: k }), h('span', { text: String(v) }))));
+  const f = {
+    name: h('input', { maxlength: 20, value: u.name }), tag: h('input', { maxlength: 6, value: u.tag || '', class: 'cf-tag' }),
+    rating: h('input', { type: 'number', min: 100, max: 4000, value: u.rating ?? 1000 }),
+    admin: h('input', { type: 'checkbox' }), banned: h('input', { type: 'checkbox' }), reason: h('input', { maxlength: 200, value: u.ban_reason || '', placeholder: 'Motivo (aparece para o jogador)' }),
+  };
+  f.admin.checked = !!u.admin; f.banned.checked = !!u.banned;
+  f.tag.oninput = () => { f.tag.value = cleanTag(f.tag.value); };
+  const rks = RACKETS.map(r => {
+    const cb = h('input', { type: 'checkbox' }); cb.checked = (u.rackets || []).includes(r.id); cb.dataset.id = r.id;
+    const c = rcfg(r), note = c.enabled === false ? 'desligada no jogo' : c.free ? 'já é de todos' : c.unlock_wins ? `ou ${c.unlock_wins} vitórias` : 'exclusiva';
+    return h('label', { class: 'adm-rk' }, cb, thumbs[r.id] ? h('img', { src: thumbs[r.id], alt: '' }) : null, h('span', {}, h('b', { text: r.name }), h('small', { text: note })));
+  });
+  const msg = h('p', { class: 'adm-msg' });
+  const save = h('button', { class: 'btn', text: 'Salvar alterações' });
+  save.onclick = async () => {
+    const patch = {};
+    if (f.name.value.trim() !== u.name) patch.name = f.name.value.trim();
+    if (cleanTag(f.tag.value) && cleanTag(f.tag.value) !== u.tag) patch.tag = cleanTag(f.tag.value);
+    if (+f.rating.value !== u.rating) patch.rating = +f.rating.value;
+    if (f.admin.checked !== !!u.admin) patch.admin = f.admin.checked;
+    if (f.banned.checked !== !!u.banned || (f.banned.checked && f.reason.value !== (u.ban_reason || ''))) { patch.banned = f.banned.checked; patch.ban_reason = f.reason.value; }
+    const sel = rks.map(l => l.querySelector('input')).filter(c => c.checked).map(c => c.dataset.id);
+    if (sel.sort().join() !== [...(u.rackets || [])].sort().join()) patch.rackets = sel;
+    if (!Object.keys(patch).length) { msg.textContent = 'Nada mudou.'; return; }
+    save.disabled = true; msg.textContent = 'Salvando…';
+    try {
+      const r = await rpc('admin_update_user', { p_id: u.id, p_patch: patch });
+      Object.assign(u, r); msg.textContent = '✅ Salvo.';
+      if (acct.profile && u.id === acct.profile.id) refreshProfile();
+      setTimeout(() => renderAdmin(), 700);
+    } catch (e) { msg.textContent = '⚠️ ' + e.message; }
+    save.disabled = false;
+  };
+  const reset = h('button', { class: 'btn ghost', text: 'Zerar elo e estatísticas' });
+  reset.onclick = async () => {
+    if (!confirm(`Zerar elo, vitórias e derrotas de ${u.name}? Não dá para desfazer.`)) return;
+    try { const r = await rpc('admin_update_user', { p_id: u.id, p_patch: { reset_stats: true } }); Object.assign(u, r, { abandons: 0, peak: 1000 }); toast('Estatísticas zeradas'); renderAdmin(); }
+    catch (e) { msg.textContent = '⚠️ ' + e.message; }
+  };
+  const row = (label, el, hint) => h('div', { class: 'cf-row' }, h('label', { class: 'cf-l' }, label, hint ? h('small', { text: hint }) : null), h('div', { class: 'cf-ctl' }, el));
+  main.append(back, h('h3', { class: 'adm-h' }, u.name, ' ', h('span', { class: 'adm-chip', text: u.tag || '—' })), info,
+    h('div', { class: 'cf-sec' }, h('div', { class: 'cf-t', text: 'Dados' }), row('Nome', f.name), row('Sigla na raquete', f.tag), row('Elo', f.rating, 'Entre 100 e 4000')),
+    h('div', { class: 'cf-sec' }, h('div', { class: 'cf-t', text: 'Raquetes liberadas para este jogador' }), h('div', { class: 'adm-rks' }, rks)),
+    h('div', { class: 'cf-sec' }, h('div', { class: 'cf-t', text: 'Permissões' }),
+      h('label', { class: 'cf-row cf-tg' }, h('span', { class: 'cf-l', text: 'Admin (libera tudo e abre este painel)' }), f.admin, h('i', { class: 'sw' })),
+      h('label', { class: 'cf-row cf-tg' }, h('span', { class: 'cf-l', text: 'Banido (não entra na ranqueada nem no ranking)' }), f.banned, h('i', { class: 'sw' })), row('Motivo do banimento', f.reason)),
+    msg, h('div', { class: 'stack' }, save, reset));
+}
+function admRackets(main) {
+  main.append(h('p', { class: 'cf-note', text: 'Ativa: aparece no jogo. Para todos: qualquer um usa. Vitórias: libera sozinha depois de X vitórias (vazio = só o admin libera, pela ficha do jogador).' }));
+  for (const r of RACKETS) {
+    const c = rcfg(r);
+    const en = h('input', { type: 'checkbox' }); en.checked = c.enabled !== false;
+    const fr = h('input', { type: 'checkbox' }); fr.checked = !!c.free;
+    const uw = h('input', { type: 'number', min: 1, max: 1000, value: c.unlock_wins || '', placeholder: '—', class: 'adm-num' });
+    const msg = h('span', { class: 'adm-msg' });
+    const save = h('button', { class: 'cf-save', text: 'Salvar' });
+    save.onclick = async () => {
+      try { await rpc('admin_set_racket', { p_id: r.id, p_enabled: en.checked, p_free: fr.checked, p_unlock_wins: uw.value ? +uw.value : null }); msg.textContent = '✅'; await loadRacketCfg(); }
+      catch (e) { msg.textContent = '⚠️ ' + e.message; }
+    };
+    const all = (grant) => async () => {
+      if (!confirm(`${grant ? 'Dar' : 'Tirar'} a ${r.name} ${grant ? 'para' : 'de'} todos os jogadores com conta?`)) return;
+      try { const n = await rpc('admin_grant_racket_all', { p_racket: r.id, p_grant: grant }); msg.textContent = `✅ ${n} jogador(es)`; refreshProfile(); }
+      catch (e) { msg.textContent = '⚠️ ' + e.message; }
+    };
+    const give = h('button', { class: 'adm-mini', text: 'Dar a todos' }); give.onclick = all(true);
+    const take = h('button', { class: 'adm-mini', text: 'Tirar de todos' }); take.onclick = all(false);
+    main.append(h('div', { class: 'adm-rrow' },
+      thumbs[r.id] ? h('img', { src: thumbs[r.id], alt: '' }) : h('span'),
+      h('div', { class: 'adm-rinfo' }, h('b', { text: r.name }), h('small', { text: `${r.tag} · vel ${r.speed} · efeito ${r.spin} · controle ${r.ctrl}` })),
+      h('label', { class: 'adm-ck' }, en, 'Ativa'), h('label', { class: 'adm-ck' }, fr, 'Para todos'),
+      h('label', { class: 'adm-ck' }, 'Vitórias', uw), save,
+      h('div', { class: 'adm-rall' }, give, take, msg)));
+  }
+}
+async function admLog(main) {
+  const list = h('div', { class: 'adm-list' }, h('p', { class: 'muted', text: 'Carregando…' })); main.append(list);
+  try {
+    const rows = await rpc('admin_log_recent', { p_limit: 60 }) || [];
+    list.textContent = '';
+    if (!rows.length) { list.append(h('p', { class: 'muted', text: 'Nenhuma alteração ainda.' })); return; }
+    const act = l => {
+      const d = l.details || {};
+      if (l.action === 'set_racket') return `raquete ${d.id}: ${d.enabled ? 'ativa' : 'desligada'}, ${d.free ? 'para todos' : d.unlock_wins ? `${d.unlock_wins} vitórias` : 'exclusiva'}`;
+      if (l.action === 'grant_racket_all') return `${d.grant ? 'deu' : 'tirou'} ${d.racket} ${d.grant ? 'para' : 'de'} ${d.players} jogador(es)`;
+      const parts = Object.entries(d).filter(([k]) => k !== 'ban_reason').map(([k, v]) => k === 'rackets' ? `raquetes: ${(v || []).join(', ') || 'nenhuma'}` : k === 'banned' ? (v ? 'baniu' : 'desbaniu') : k === 'admin' ? (v ? 'deu admin' : 'tirou admin') : k === 'reset_stats' ? 'zerou estatísticas' : `${k}: ${v}`);
+      return `${l.target || 'jogador'} → ${parts.join(' · ')}`;
+    };
+    for (const l of rows) list.append(h('div', { class: 'adm-log' }, h('small', { text: new Date(l.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) }), h('b', { text: l.admin || 'admin' }), h('span', { text: act(l) })));
+  } catch (e) { list.textContent = ''; list.append(h('p', { class: 'muted', text: 'Não consegui carregar: ' + e.message })); }
+}
+
+/* ---------- telas (CSS + HTML) ---------- */
+function initMenusUI() {
+  const st = document.createElement('style');
+  st.textContent = `
+  #lobby .card { position: relative; }
+  .gear { position: absolute; top: 14px; right: 14px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.08); color: #fff; font-size: 19px; cursor: pointer; z-index: 2; }
+  .gear:hover { background: rgba(255,79,139,.35); }
+  #cfgScreen .card, #admScreen .card { max-width: 560px; text-align: left; max-height: 92vh; overflow-y: auto; }
+  #admScreen .card { max-width: 780px; }
+  .cf-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+  .cf-head h2 { margin: 0; }
+  .cf-x { border: 0; background: rgba(255,255,255,.1); color: #fff; width: 36px; height: 36px; border-radius: 50%; font-size: 18px; cursor: pointer; flex: none; }
+  .cf-sec { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); border-radius: 14px; padding: 10px 12px; margin-top: 12px; }
+  .cf-t { font-size: 12px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; opacity: .75; margin-bottom: 6px; }
+  .cf-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; }
+  .cf-row + .cf-row { border-top: 1px solid rgba(255,255,255,.05); }
+  .cf-l { font-size: 14px; font-weight: 700; display: flex; flex-direction: column; min-width: 0; }
+  .cf-l small { font-size: 11.5px; font-weight: 500; opacity: .6; margin-top: 1px; }
+  .cf-ctl { display: flex; align-items: center; gap: 8px; flex: none; }
+  .cf-ctl input[type=range] { width: 150px; accent-color: #ff4f8b; }
+  .cf-ctl input:not([type]), .cf-ctl input[type=number], .adm-q { background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.15); color: #fff; border-radius: 9px; padding: 8px 10px; font-size: 14px; width: 170px; }
+  .cf-ctl input:not([type]), .cf-ctl input[type=number], .adm-q { text-transform: none; letter-spacing: normal; text-align: left; font-weight: 600; }
+  .cf-tag { text-transform: uppercase !important; font-weight: 900 !important; letter-spacing: .12em !important; text-align: center !important; width: 110px !important; }
+  .cf-v { width: 46px; text-align: right; font-weight: 800; font-size: 13px; opacity: .85; }
+  .cf-mute { border: 0; background: none; font-size: 17px; cursor: pointer; padding: 0 2px; }
+  .cf-tg { cursor: pointer; } .cf-tg input { display: none; }
+  .cf-tg .sw { width: 42px; height: 24px; border-radius: 999px; background: rgba(255,255,255,.18); position: relative; flex: none; transition: background .2s; }
+  .cf-tg .sw::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .2s; }
+  .cf-tg input:checked + .sw { background: #ff4f8b; } .cf-tg input:checked + .sw::after { transform: translateX(18px); }
+  .cf-q, .cf-save, .adm-mini { border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.08); color: #fff; border-radius: 9px; padding: 8px 12px; font-weight: 800; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .cf-q.on, .cf-save { background: linear-gradient(180deg, #ff4f8b, #d81b60); border-color: transparent; }
+  .cf-prev { font-size: 12.5px; font-weight: 800; color: #ffd34d; padding: 2px 0 4px; }
+  .cf-note { font-size: 12px; opacity: .65; margin: 8px 0 0; line-height: 1.45; }
+  .cf-foot { display: flex; gap: 8px; margin-top: 14px; } .cf-foot .btn { flex: 1; }
+  .acct-extra { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .acct-extra button { border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); color: #fff; border-radius: 999px; padding: 5px 10px; font-size: 12px; font-weight: 800; cursor: pointer; }
+  .acct-extra .adm { background: linear-gradient(90deg, #ffd34d, #ff9a3c); color: #1a1000; border: 0; }
+  .acct-ban { margin-top: 8px; font-size: 12.5px; font-weight: 800; color: #ff7a8a; }
+  .adm-tabs { display: flex; gap: 6px; margin: 10px 0 4px; flex-wrap: wrap; }
+  .adm-tab { border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.05); color: #fff; border-radius: 999px; padding: 7px 14px; font-weight: 800; cursor: pointer; }
+  .adm-tab.on { background: #ff4f8b; border-color: #ff4f8b; }
+  .adm-search { display: flex; gap: 8px; margin: 10px 0; } .adm-q { flex: 1; width: auto; }
+  .adm-list { display: flex; flex-direction: column; gap: 4px; max-height: 58vh; overflow-y: auto; }
+  .adm-count { font-size: 12px; opacity: .6; margin-bottom: 2px; }
+  .adm-row { display: grid; grid-template-columns: 1fr 70px 80px 70px auto; gap: 8px; align-items: center; text-align: left; border: 0; background: rgba(255,255,255,.045); color: #fff; padding: 9px 10px; border-radius: 10px; cursor: pointer; font-size: 13.5px; }
+  .adm-row:hover { background: rgba(255,79,139,.2); } .adm-row.ban { opacity: .6; }
+  .adm-nm { display: flex; gap: 6px; align-items: center; min-width: 0; } .adm-nm b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .adm-chip { font-size: 10.5px; font-weight: 900; letter-spacing: .1em; padding: 2px 6px; border-radius: 6px; background: rgba(255,211,77,.18); color: #ffd34d; }
+  .adm-pv, .adm-wl { font-size: 12px; opacity: .7; } .adm-elo { font-weight: 800; }
+  .adm-bd { display: flex; gap: 4px; } .adm-bd i { font-style: normal; font-size: 10px; font-weight: 900; padding: 2px 6px; border-radius: 999px; }
+  .b-adm { background: #ffd34d; color: #1a1000; } .b-ban { background: #ff3355; } .b-rk { background: rgba(154,92,255,.4); }
+  .adm-back { border: 0; background: none; color: #ffd34d; font-weight: 800; cursor: pointer; padding: 6px 0; }
+  .adm-h { margin: 4px 0 8px; display: flex; align-items: center; gap: 8px; }
+  .adm-info { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; font-size: 13px; }
+  .adm-info small { display: block; font-size: 11px; opacity: .55; } .adm-info span { word-break: break-all; }
+  .adm-rks { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .adm-rk { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.04); border-radius: 10px; padding: 6px 8px; cursor: pointer; font-size: 13px; }
+  .adm-rk img { width: 26px; height: 33px; object-fit: contain; } .adm-rk small { display: block; font-size: 11px; opacity: .6; }
+  .adm-rk input, .adm-ck input[type=checkbox] { width: 18px; height: 18px; accent-color: #ff4f8b; }
+  .adm-msg { font-size: 13px; font-weight: 700; min-height: 18px; }
+  .adm-rrow { display: grid; grid-template-columns: 36px 1fr auto auto auto auto; gap: 10px; align-items: center; background: rgba(255,255,255,.04); border-radius: 12px; padding: 8px 10px; margin-top: 8px; font-size: 13px; }
+  .adm-rrow img { width: 32px; height: 40px; object-fit: contain; } .adm-rinfo small { display: block; font-size: 11px; opacity: .6; }
+  .adm-ck { display: flex; align-items: center; gap: 5px; font-weight: 700; white-space: nowrap; }
+  .adm-num { width: 64px !important; padding: 6px !important; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.15); color: #fff; border-radius: 8px; }
+  .adm-rall { grid-column: 2 / -1; display: flex; gap: 6px; align-items: center; } .adm-mini { padding: 5px 9px; font-size: 12px; }
+  .adm-log { display: grid; grid-template-columns: 112px 110px 1fr; gap: 8px; font-size: 13px; padding: 7px 8px; border-radius: 8px; background: rgba(255,255,255,.035); }
+  .adm-log small { opacity: .6; }
+  @media (max-width: 620px) {
+    .adm-row { grid-template-columns: 1fr auto; } .adm-pv, .adm-wl { display: none; }
+    .adm-rrow { grid-template-columns: 36px 1fr; } .adm-info, .adm-rks { grid-template-columns: 1fr; }
+    .cf-row { flex-wrap: wrap; } .cf-ctl input[type=range] { width: 120px; } .adm-log { grid-template-columns: 1fr; }
+  }`;
+  document.head.appendChild(st);
+  const gear = h('button', { class: 'gear', title: 'Configurações', 'aria-label': 'Configurações', text: '⚙️' });
+  gear.onclick = () => openSettings();
+  document.querySelector('#lobby .card').prepend(gear);
+  const hg = h('button', { id: 'btnCfg', title: 'Configurações', text: '⚙️' }); hg.onclick = () => openSettings();
+  $('btnSound').before(hg);
+  const cs = h('div', { id: 'cfgScreen', class: 'screen hidden' });
+  cs.style.zIndex = 42;
+  const x1 = h('button', { class: 'cf-x', 'aria-label': 'Fechar', text: '✕' }); x1.onclick = closeSettings;
+  const rs = h('button', { class: 'btn ghost', text: 'Restaurar padrão' });
+  rs.onclick = () => { Object.assign(cfg, CFG_DEF); applyCfg(); renderSettings(); toast('Configurações restauradas'); };
+  const ok = h('button', { class: 'btn', text: 'Pronto' }); ok.onclick = closeSettings;
+  cs.append(h('div', { class: 'card' }, h('div', { class: 'cf-head' }, h('h2', { text: '⚙️ Configurações' }), x1), h('div', { id: 'cfgBody' }), h('div', { class: 'cf-foot' }, rs, ok)));
+  cs.onclick = e => { if (e.target === cs) closeSettings(); };
+  document.body.append(cs);
+  const as = h('div', { id: 'admScreen', class: 'screen hidden' });
+  as.style.zIndex = 43;
+  const x2 = h('button', { class: 'cf-x', 'aria-label': 'Fechar', text: '✕' }); x2.onclick = () => as.classList.add('hidden');
+  as.append(h('div', { class: 'card' }, h('div', { class: 'cf-head' }, h('h2', { text: '🛠️ Painel do admin' }), x2), h('div', { id: 'admBody' })));
+  document.body.append(as);
+  // cartão da conta: sigla, configurações e painel do admin
+  const ex = h('div', { class: 'acct-extra', id: 'acctExtra' });
+  const bTag = h('button', { id: 'acctTagBtn', text: '🏓 Sigla' }); bTag.onclick = () => openSettings('perfil');
+  const bAdm = h('button', { class: 'adm hidden', id: 'btnAdmin', text: '🛠️ Painel admin' }); bAdm.onclick = () => openAdmin();
+  ex.append(bTag, bAdm);
+  $('acctIn').append(ex, h('div', { class: 'acct-ban hidden', id: 'acctBan' }));
+  $('btnName').onclick = () => openSettings('perfil');
+  window.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('cfgScreen').classList.contains('hidden')) closeSettings(); });
+  applyCfg();
+}
+function renderAccountExtras() {
+  const p = acct.profile; if (!$('acctExtra')) return;
+  $('acctTagBtn').textContent = `🏓 Sigla: ${myTag() || '—'} ✎`;
+  $('btnAdmin').classList.toggle('hidden', !(p && p.admin));
+  $('acctBan').classList.toggle('hidden', !(p && p.banned));
+  if (p && p.banned) $('acctBan').textContent = `⛔ Conta suspensa da ranqueada${p.ban_reason ? ': ' + p.ban_reason : ''}`;
+}
+initMenusUI();
+
 setMuted(muted);
+
+/* =====================================================================
+   REPLAYS (estilo Rocket League) E COMEMORAÇÃO
+   Cada ponto é gravado (bola, raquetes e batidas). Ponto bonito ganha replay
+   na hora: câmera de TV, câmera lenta com zoom na batida e câmera seguindo a
+   bola. No fim da partida: fogos, volta da câmera e os 2 melhores momentos.
+   ===================================================================== */
+const RP = { rec: null, clips: [], play: null, pending: false, lastReplayPt: -9, cam: { pos: new THREE.Vector3(), look: new THREE.Vector3(), fov: 40, snap: true } };
+const HL_INSTANT = 6.5;                    // nota mínima para replay na hora
+const totalPts = () => S.score['1'] + S.score['-1'] + S.gameScores.reduce((a, g) => a + g['1'] + g['-1'], 0);
+
+function recStart() {
+  recFinish();
+  RP.rec = { t: 0, frames: [], events: [], maxV: { '1': 0, '-1': 0 }, lastHit: { '1': null, '-1': null }, lastAny: null, server: S.server, gameNo: S.gameNo, done: false };
+}
+function recEvent(k, p, s, ex) {
+  const c = RP.rec; if (!c || c.done && c.t > c.tP + 1.2) return;
+  const e = { t: c.t, k, p: [p[0], p[1], p[2]], s, ...ex };
+  c.events.push(e);
+  if (k === 'hit') {
+    c.lastHit[String(ex.side)] = e; c.lastAny = e;
+    c.maxV[String(ex.side)] = Math.max(c.maxV[String(ex.side)], ex.speed || 0);
+  }
+}
+function recFrame(dt) {
+  const c = RP.rec; if (!c || RP.play) return;
+  if (S.phase !== 'serve' && S.phase !== 'rally' && S.phase !== 'point') return;
+  c.t += dt * TIME_SCALE;
+  if (c.done && c.t > c.tP + 1.2) return;            // depois do ponto grava só mais um pouquinho
+  if (c.frames.length > 3600) c.frames.splice(0, 600);  // rally gigante: guarda o final
+  const b = S.ball.p, m = myPaddleMesh, o = oppPaddleMesh;
+  c.frames.push([c.t, b[0], b[1], b[2], S.ballVisible ? 1 : 0,
+    m.position.x, m.position.y, m.position.z, m.userData.pivot.rotation.x, m.userData.pivot.rotation.z,
+    o.position.x, o.position.y, o.position.z, o.userData.pivot.rotation.x, o.userData.pivot.rotation.z, trailColor.getHex()]);
+}
+// nota do ponto: rally longo, smash, curva, bola na fita, ace e velocidade valem mais
+function hlInfo(winner, reason) {
+  const c = RP.rec || { maxV: { '1': 0, '-1': 0 } };
+  const label = S.rally.hitter === winner ? S.lastLabel : null, rally = S.streak;
+  const ace = rally === 0 && reason === 'miss' && winner === S.server;
+  let s = rally * 0.6 + (c.maxV[String(winner)] || 0) / 4;
+  s += { 'SMASH!': 3.5, 'SIDE-SPIN': 2, 'RASPOU NA REDE!': 3, 'CORTE': 1, 'TOP-SPIN': 0.5 }[label] || 0;
+  if (ace) s += 1.5;
+  if (reason === 'out' || reason === 'net') s *= 0.35;     // erro do adversário vale menos
+  return { score: s, label, rally, ace };
+}
+function recPoint(winner, reason) {
+  const c = RP.rec; if (!c || !winner) return;
+  const h = hlInfo(winner, reason);
+  const hit = c.lastHit[String(winner)] || c.lastAny;
+  Object.assign(c, { done: true, tP: c.t, winner, reason, ...h, tHit: hit ? hit.t : Math.max(0, c.t - 0.6), hitter: hit ? hit.side : winner,
+    scoreTxt: `${S.score[String(S.mySide)]}-${S.score[String(-S.mySide)]}`, who: winner === S.mySide ? (acct.profile ? acct.profile.name : 'Você') : oppLabel() });
+}
+function recFinish() {
+  const c = RP.rec; RP.rec = null;
+  if (!c || !c.done || c.frames.length < 20 || c.score < 2) return;
+  RP.clips.push(c); RP.clips.sort((a, b) => b.score - a.score);
+  if (RP.clips.length > 6) RP.clips.length = 6;
+}
+function clipDesc(c) {
+  const what = c.ace ? 'ACE' : c.label === 'SMASH!' ? 'SMASH' : c.label === 'SIDE-SPIN' ? 'CURVA' : c.label === 'RASPOU NA REDE!' ? 'NA FITA' : 'PONTO';
+  return `${what} de ${c.who}${c.rally >= 4 ? ` · rally de ${c.rally}` : ''} · ${c.scoreTxt}${S.format > 1 ? ` · game ${c.gameNo}` : ''}`;
+}
+
+/* ---------- tocar um replay ---------- */
+function frameAt(c, t) {
+  const F = c.frames; let lo = 0, hi = F.length - 1;
+  if (t <= F[0][0]) return F[0];
+  if (t >= F[hi][0]) return F[hi];
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (F[mid][0] <= t) lo = mid; else hi = mid; }
+  const a = F[lo], b = F[hi], k = (t - a[0]) / Math.max(1e-6, b[0] - a[0]);
+  return a.map((v, i) => i === 4 || i === 15 ? (k < 0.5 ? v : b[i]) : v + (b[i] - v) * k);
+}
+function buildShots(c, short) {
+  const t0 = c.frames[0][0], tLast = c.frames[c.frames.length - 1][0], tH = c.tHit;
+  const tEnd = Math.min(tLast, c.tP + (short ? 0.35 : 0.7));
+  const shots = [
+    { a: Math.max(t0, tH - (short ? 1.3 : 2.8)), b: tH - 0.08, rate: 1, cam: 'broadcast' },
+    { a: tH - 0.08, b: tH + 0.22, rate: 0.25, cam: 'hit', freezeAt: tH + 0.015, freeze: 0.45 },
+    { a: tH + 0.04, b: tEnd, rate: short ? 0.7 : 0.5, cam: 'chase' },
+  ].filter(s => s.b > s.a + 0.05);
+  shots.push({ a: tEnd, b: Math.min(tLast, tEnd + 0.25), rate: 0.5, cam: 'celebrate', hold: 0.6 });
+  return shots;
+}
+function startReplay(clip, o = {}) {
+  const shots = buildShots(clip, o.mode === 'instant');
+  RP.play = { clip, shots, i: 0, t: shots[0].a, freeze: 0, frozen: false, mode: o.mode, onEnd: o.onEnd, skipMe: false, skipOpp: false, el: 0, title: o.title || 'REPLAY' };
+  RP.cam.snap = true;
+  document.body.classList.add('replaying');
+  $('rpTitle').textContent = RP.play.title; $('rpCap').textContent = clipDesc(clip);
+  $('rpSkip').textContent = 'Pular ⏭'; $('rpUI').classList.remove('hidden');
+  $('chatFeed').classList.add('hidden');
+  flash();
+  if (o.mode === 'instant' && !cfg.replays) skipReplay();   // quem desligou os replays já vota para pular
+}
+function endReplay(run = true) {
+  const p = RP.play; if (!p) return;
+  RP.play = null; trailPts.length = 0;
+  document.body.classList.remove('replaying'); $('rpUI').classList.add('hidden'); $('chatFeed').classList.remove('hidden');
+  if (run && p.onEnd) p.onEnd();
+}
+function skipReplay() {
+  const p = RP.play; if (!p) return;
+  if (p.mode === 'instant' && S.mode === 'online') {     // online: os dois precisam pular (como no Rocket League)
+    if (!p.skipMe) { p.skipMe = true; send({ t: 'rskip' }); }
+    if (p.skipOpp) endReplay(); else $('rpSkip').textContent = 'Esperando o adversário…';
+    return;
+  }
+  if (p.mode === 'highlight' && END.active) { END.skipAll = true; }
+  endReplay();
+}
+function replayEvents(c, t0, t1) {
+  for (const e of c.events) {
+    if (e.t <= t0 || e.t > t1) continue;
+    if (e.k === 'hit') { sfx('hit', e.label, e.p, e.s * 0.8, (e.side === S.mySide ? myRacket : oppRacket).sound); sparks.emit(22, e.p[0], e.p[1], e.p[2], TRAIL_COLORS[e.label] || 0x22ff88, 1.8, { life: 0.4, intensity: 2.5, grav: 2, drag: 3 }); }
+    else if (e.k === 'table') { sfx('table', null, e.p, e.s); spawnRing(e.p[0], TH + 0.003, e.p[2], trailColor); }
+    else if (e.k === 'net') sfx('net', null, e.p, e.s);
+  }
+}
+function replayStep(dt) {
+  const p = RP.play; if (!p) return;
+  const c = p.clip, sh = p.shots[p.i];
+  p.el += dt;
+  if (p.freeze > 0) {                                   // congela na batida, com zoom
+    p.freeze -= dt;
+  } else {
+    const prev = p.t;
+    p.t = Math.min(sh.b, p.t + dt * TIME_SCALE * sh.rate);
+    if (sh.freezeAt && !p.frozen && p.t >= sh.freezeAt) {
+      p.t = sh.freezeAt; p.frozen = true; p.freeze = sh.freeze;
+      if (c.label) showLabel(c.label);
+      const f = frameAt(c, p.t); sparks.emit(36, f[1], f[2], f[3], TRAIL_COLORS[c.label] || 0xffffff, 2.2, { life: 0.6, intensity: 3, grav: 1, drag: 2.5 });
+      cam.shake = 0.4;
+    }
+    replayEvents(c, prev, p.t);
+  }
+  $('rpSpeed').textContent = p.freeze > 0 ? '⏸ CONGELADO' : sh.rate < 1 ? `⏱ CÂMERA LENTA ${sh.rate}×` : '';
+  if (sh.cam === 'celebrate' && !sh.started) { sh.started = true; crowdReact('point', 0.9); pyroBurst(0.9); confetti.emit(70, 0, 3.2, c.winner * (HL + 0.4), 0xffffff, 1.2, { rainbow: true, life: 2.5, grav: 0.9, drag: 1.4, spread: 3 }); }
+  if (p.t >= sh.b && p.freeze <= 0) {
+    if (sh.hold && (sh.holdT = (sh.holdT || 0) + dt) < sh.hold) { /* segura a comemoração um pouco */ }
+    else if (p.i + 1 < p.shots.length) { p.i++; p.t = p.shots[p.i].a; RP.cam.snap = true; flash(); }
+    else { endReplay(); return; }
+  }
+  if (p.el > 14) endReplay();                           // trava de segurança
+}
+// coloca bola e raquetes como estavam no momento t
+function replayPose() {
+  const p = RP.play; if (!p) return;
+  const c = p.clip, f = frameAt(c, p.t);
+  ballMesh.visible = blob.visible = ballGlow.visible = !!f[4];
+  ballMesh.position.set(f[1], f[2], f[3]); ballGlow.position.copy(ballMesh.position); ballGlow.scale.set(0.16, 0.16, 1);
+  trailColor.setHex(f[15]); ballGlow.material.color.copy(trailColor).lerp(_fxC.setHex(0xffffff), 0.55);
+  const overTable = Math.abs(f[1]) < HW && Math.abs(f[3]) < HL && f[2] > TH - 0.01, sy = overTable ? TH + 0.002 : 0.005;
+  blob.position.set(f[1], sy, f[3]); const s = 1 + Math.max(0, f[2] - sy) * 1.4; blob.scale.set(s, s, s);
+  trailPts.length = 0;
+  for (let i = 9; i >= 0; i--) { const q = frameAt(c, p.t - i * 0.012); if (q[4]) trailPts.push([q[1], q[2], q[3]]); }
+  updateTrail();
+  const pose = (mesh, o, sd) => { mesh.visible = true; mesh.position.set(f[o], f[o + 1], f[o + 2]); mesh.rotation.set(0, sd > 0 ? 0 : Math.PI, 0); mesh.userData.pivot.rotation.set(f[o + 3], 0, f[o + 4]); };
+  pose(myPaddleMesh, 5, S.mySide); pose(oppPaddleMesh, 10, -S.mySide);
+}
+const _rp = new THREE.Vector3(), _rl = new THREE.Vector3(), _rd = new THREE.Vector3();
+function replayCamera(dt) {
+  const p = RP.play; if (!p) return;
+  const c = p.clip, sh = p.shots[p.i], f = frameAt(c, p.t), ball = _rl.set(f[1], Math.max(f[2], TH - 0.2), f[3]);
+  let fov = 40;
+  if (sh.cam === 'broadcast') {
+    _rp.set(3.4, TH + 1.35, clamp(f[3] * 0.4, -1.2, 1.2)); ball.set(f[1] * 0.4, TH + 0.05, f[3] * 0.6); fov = 36;
+  } else if (sh.cam === 'hit') {
+    if (!sh.base) {
+      const h = frameAt(c, c.tHit), mine = c.hitter === S.mySide, o = mine ? 5 : 10, hz = h[o + 2], hs = Math.sign(hz) || 1, sx = Math.sign(h[o]) || 1;
+      sh.base = new THREE.Vector3(h[o] + sx * 0.85, TH + 0.14, hz - hs * 0.8);
+    }
+    _rp.copy(sh.base); fov = p.freeze > 0 ? lerp(RP.cam.fov, 19, Math.min(1, dt * 5)) : 30;
+  } else if (sh.cam === 'chase') {
+    const g = frameAt(c, p.t - 0.05); _rd.set(f[1] - g[1], 0, f[3] - g[3]);
+    if (_rd.lengthSq() < 1e-6) _rd.set(0, 0, -Math.sign(f[3]) || 1);
+    _rd.normalize();
+    _rp.set(f[1] - _rd.x * 1.1, Math.max(f[2], TH) + 0.42, f[3] - _rd.z * 1.1); ball.addScaledVector(_rd, 0.7); ball.y = lerp(ball.y, TH, 0.5); fov = 50;
+  } else {                                               // comemoração: câmera gira em volta de quem fez o ponto
+    const o = c.winner === S.mySide ? 5 : 10, cz = f[o + 2], a = p.el * 0.7;
+    ball.set(f[o], f[o + 1] + 0.05, cz);
+    _rp.set(f[o] + Math.sin(a) * 1.5, TH + 0.55, cz - Math.sign(cz) * Math.cos(a) * 1.5); fov = 42;
+  }
+  const k = RP.cam.snap ? 1 : Math.min(1, dt * (sh.cam === 'hit' ? 10 : 5));
+  RP.cam.pos.lerp(_rp, k); RP.cam.look.lerp(ball, RP.cam.snap ? 1 : Math.min(1, dt * 9)); RP.cam.fov = RP.cam.snap ? fov : lerp(RP.cam.fov, fov, Math.min(1, dt * 4));
+  RP.cam.snap = false;
+  camera.position.copy(RP.cam.pos); camera.lookAt(RP.cam.look);
+  if (cam.shake > 0 && cfg.shake) { const s = cam.shake * cam.shake * 0.02; camera.position.x += (Math.random() - 0.5) * s; camera.position.y += (Math.random() - 0.5) * s; cam.shake = Math.max(0, cam.shake - dt * 3); }
+  camera.fov = RP.cam.fov; camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+}
+function flash() { const el = $('rpFlash'); el.classList.remove('go'); void el.offsetWidth; el.classList.add('go'); }
+
+/* ---------- fogos de artifício (em todos os cenários; dentro do ginásio sobem menos) ---------- */
+const FW = { rockets: [], light: new THREE.PointLight(0xffffff, 0, 40, 1.6), lt: 0 };
+scene.add(FW.light);
+const FW_COLORS = [0xff3d7f, 0xffd34d, 0x40e0ff, 0x9a5cff, 0x2fd16b, 0xff7a1a, 0xffffff];
+function launchRocket() {
+  const indoor = !A.fireworks, g = 6, fz = -(S.mySide || 1);      // sobem na frente da câmera (lado do adversário)
+  const x = (Math.random() - 0.5) * (indoor ? 8 : 18);
+  const z = fz * (indoor ? HL + 2.2 + Math.random() * 3 : 7 + Math.random() * 6);
+  const y0 = indoor ? 0.3 : 1, top = indoor ? 2.4 + Math.random() * 1.2 : 5.5 + Math.random() * 3, vy = Math.sqrt(2 * g * (top - y0));
+  FW.rockets.push({ p: [x, y0, z], v: [(Math.random() - 0.5) * 0.7, vy, (Math.random() - 0.5) * 0.7], life: vy / g, indoor, c1: pick(FW_COLORS), c2: pick(FW_COLORS) });
+  if (actx) {                                            // assobio do foguete subindo
+    const t = actx.currentTime, o = actx.createOscillator(), gn = actx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(900, t); o.frequency.exponentialRampToValueAtTime(2600, t + vy / g);
+    gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(indoor ? 0.012 : 0.008, t + 0.08); gn.gain.exponentialRampToValueAtTime(0.0001, t + vy / g);
+    o.connect(gn).connect(sfxBus); o.start(t); o.stop(t + vy / g + 0.05);
+  }
+}
+function celebrate(intensity = 1) {
+  const n = Math.round(3 + 9 * intensity);
+  for (let i = 0; i < n; i++) setTimeout(() => { if (S.phase !== 'lobby') launchRocket(); }, i * 280 + Math.random() * 220);
+}
+function updateFireworks(dt) {
+  for (let i = FW.rockets.length - 1; i >= 0; i--) {
+    const r = FW.rockets[i];
+    r.life -= dt; r.v[1] -= 6 * dt;
+    for (let k = 0; k < 3; k++) r.p[k] += r.v[k] * dt;
+    pyro.emit(2, r.p[0], r.p[1], r.p[2], 0xffd9a0, 0.12, { life: 0.35, grav: 0.6, drag: 2, intensity: 2 });
+    if (r.life <= 0) {
+      const big = !r.indoor;
+      pyro.emit(big ? 100 : 75, r.p[0], r.p[1], r.p[2], r.c1, big ? 3.6 : 2.8, { life: 1.6, grav: 1.1, drag: 1.3, intensity: 3.2, rainbow: Math.random() < 0.25 });
+      pyro.emit(big ? 45 : 35, r.p[0], r.p[1], r.p[2], r.c2, big ? 2.1 : 1.6, { life: 1.2, grav: 1.4, drag: 1.6, intensity: 2.8 });
+      if (big) fwSolid.emit(110, r.p[0], r.p[1], r.p[2], r.c1, 3.4, { life: 1.7, grav: 1.1, drag: 1.3, intensity: 1.25, rainbow: Math.random() < 0.25 });
+      FW.light.position.set(r.p[0], r.p[1], r.p[2]); FW.light.color.setHex(r.c1); FW.lt = big ? 1 : 0.6;
+      boom(big ? 0.75 : 0.5);
+      FW.rockets.splice(i, 1);
+    }
+  }
+  FW.lt = Math.max(0, FW.lt - dt * 2.5);
+  FW.light.intensity = FW.lt * FW.lt * (A.fireworks ? 40 : 10);
+}
+
+/* ---------- fim da partida: comemoração, volta da câmera, melhores momentos e resumo ---------- */
+const END = { active: false, t: 0, won: false, stage: '', list: [], idx: 0, skipAll: false };
+function endSequence(won) {
+  recFinish();
+  Object.assign(END, { active: true, t: 0, won, stage: 'party', list: pickHighlights(), idx: 0, skipAll: false });
+  showBanner(won ? 'VITÓRIA!' : 'FIM DE JOGO', won ? 'mandou muito! 🏆' : `${oppLabel()} levou essa`, won ? 'win' : 'lose', 3300);
+  fxWin(won); celebrate(1.3); setTimeout(() => { if (END.active) celebrate(0.8); }, 1700);
+  $('rpUI').classList.remove('hidden'); $('rpTitle').textContent = won ? '🏆 VITÓRIA' : 'FIM DE JOGO'; $('rpCap').textContent = '';
+  $('rpSpeed').textContent = ''; $('rpSkip').textContent = 'Ver resultado ⏭';
+  document.body.classList.add('replaying');
+}
+function pickHighlights() {
+  const mine = RP.clips.filter(c => c.winner === S.mySide && c.score >= 2.5);
+  const rest = RP.clips.filter(c => !mine.includes(c) && c.score >= 4.5);
+  return [...mine, ...rest].slice(0, 2);
+}
+function endStep(dt) {
+  if (!END.active || RP.play) return;
+  END.t += dt;
+  if (END.stage === 'party') {                           // câmera dá uma volta lenta pela arena
+    const sd = S.mySide || 1, a = Math.sin(END.t * 0.35) * 0.9, k = Math.min(1, END.t / 3.6);
+    camera.position.set(Math.sin(a) * 2.6, TH + 1.25 - k * 0.35, sd * (HL + 2.9 - k * 0.6));   // câmera vem chegando e balança devagar
+    camera.lookAt(0, A.fireworks ? TH + 2.0 : TH + 0.9, -sd * 2.5); camera.fov = 52; camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+    if (END.t > 3.6 || END.skipAll) nextHighlight();
+  }
+}
+function nextHighlight() {
+  if (END.skipAll || !cfg.replays || END.idx >= END.list.length) { finishEnd(); return; }
+  END.stage = 'hl';
+  const c = END.list[END.idx++];
+  startReplay(c, { mode: 'highlight', title: `⭐ MELHORES MOMENTOS ${END.idx}/${END.list.length}`, onEnd: () => { if (END.active) nextHighlight(); } });
+}
+function finishEnd() {
+  END.active = false; END.stage = '';
+  if (RP.play) endReplay(false);
+  document.body.classList.remove('replaying'); $('rpUI').classList.add('hidden');
+  if (S.phase === 'over') $('over').classList.remove('hidden');
+}
+function stopEnd() { END.active = false; END.stage = ''; if (RP.play) endReplay(false); document.body.classList.remove('replaying'); $('rpUI').classList.add('hidden'); }
+
+/* ---------- telas do replay, faixa de anúncio e placar de games ---------- */
+let bannerTimer = 0;
+function showBanner(big, small, kind, ms = 3000) {
+  const el = $('bigBanner'); el.className = 'show ' + (kind || '');
+  el.innerHTML = ''; const b = document.createElement('b'); b.textContent = big; el.appendChild(b);
+  if (small) { const s = document.createElement('span'); s.textContent = small; el.appendChild(s); }
+  clearTimeout(bannerTimer); bannerTimer = setTimeout(() => el.classList.remove('show'), ms);
+}
+function initReplayUI() {
+  const st = document.createElement('style');
+  st.textContent = `
+  #rpUI { position: fixed; inset: 0; pointer-events: none; z-index: 25; }
+  #rpUI .bar { position: absolute; left: 0; right: 0; height: 9vh; background: #000; }
+  #rpUI .bar.t { top: 0; } #rpUI .bar.b { bottom: 0; }
+  #rpUI .badge { position: absolute; top: calc(9vh + 14px); left: 18px; display: flex; align-items: center; gap: 8px; font: italic 900 22px system-ui; letter-spacing: .06em; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,.6); }
+  #rpUI .badge::before { content: ''; width: 12px; height: 12px; border-radius: 50%; background: #ff2a55; box-shadow: 0 0 12px #ff2a55; animation: rpBlink 1s infinite; }
+  #rpUI .speed { position: absolute; top: calc(9vh + 18px); right: 18px; font: 800 14px system-ui; color: #ffd34d; letter-spacing: .08em; text-shadow: 0 2px 8px rgba(0,0,0,.7); }
+  #rpUI .cap { position: absolute; bottom: calc(9vh + 16px); left: 50%; transform: translateX(-50%); font: 800 17px system-ui; color: #fff; background: rgba(0,0,0,.55); padding: 8px 16px; border-radius: 999px; white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; }
+  #rpUI .cap:empty { display: none; }
+  #rpSkip { position: absolute; bottom: calc(9vh - 46px); right: 18px; pointer-events: auto; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.12); color: #fff; font: 800 14px system-ui; padding: 8px 14px; border-radius: 999px; cursor: pointer; }
+  #rpSkip:hover { background: rgba(255,79,139,.5); }
+  #rpFlash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 26; }
+  #rpFlash.go { animation: rpFlash .35s ease-out; }
+  @keyframes rpFlash { from { opacity: .75; } to { opacity: 0; } }
+  @keyframes rpBlink { 50% { opacity: .25; } }
+  body.replaying #board, body.replaying #tag, body.replaying #streak, body.replaying #qcHint, body.replaying #ping, body.replaying #fmtTag, body.replaying #msg { visibility: hidden; }
+  #bigBanner { position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%) scale(.6); opacity: 0; z-index: 27; pointer-events: none; text-align: center; transition: opacity .25s, transform .35s cubic-bezier(.2,1.6,.4,1); }
+  #bigBanner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #bigBanner b { display: block; font: italic 900 clamp(44px, 9vw, 110px) system-ui; letter-spacing: .02em; color: #fff; text-shadow: 0 0 30px rgba(255,61,127,.9), 0 6px 0 rgba(0,0,0,.35); white-space: nowrap; }
+  #bigBanner.win b { background: linear-gradient(180deg, #fff6c2, #ffd34d 55%, #ff9a3c); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; filter: drop-shadow(0 0 22px rgba(255,200,60,.8)) drop-shadow(0 5px 0 rgba(0,0,0,.35)); }
+  #bigBanner.lose b { color: #e8e2ff; text-shadow: 0 0 24px rgba(120,100,255,.7), 0 5px 0 rgba(0,0,0,.35); }
+  #bigBanner span { display: inline-block; margin-top: 8px; font: 800 18px system-ui; color: #fff; background: rgba(0,0,0,.5); padding: 6px 14px; border-radius: 999px; }
+  .team .gms { display: inline-flex; gap: 3px; margin: 0 6px; vertical-align: middle; }
+  .team .gms i { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.6); }
+  .team .gms i.on { background: #ffd34d; border-color: #ffd34d; box-shadow: 0 0 8px #ffd34d; }
+  #fmtTag { position: absolute; top: 58px; left: 50%; transform: translateX(-50%); font: 900 11px system-ui; letter-spacing: .16em; color: rgba(255,255,255,.75); text-shadow: 0 1px 6px rgba(0,0,0,.7); }`;
+  document.head.appendChild(st);
+  const ui = document.createElement('div'); ui.id = 'rpUI'; ui.className = 'hidden';
+  ui.innerHTML = '<div class="bar t"></div><div class="bar b"></div><div class="badge" id="rpTitle">REPLAY</div><div class="speed" id="rpSpeed"></div><div class="cap" id="rpCap"></div><button id="rpSkip">Pular ⏭</button>';
+  document.body.appendChild(ui);
+  const fl = document.createElement('div'); fl.id = 'rpFlash'; document.body.appendChild(fl);
+  const bn = document.createElement('div'); bn.id = 'bigBanner'; document.body.appendChild(bn);
+  const nmL = document.querySelector('#board .team.me .nm'), nmR = document.querySelector('#board .team.op .nm');
+  if (nmL) { const g = document.createElement('span'); g.className = 'gms'; g.id = 'gmsL'; nmL.after(g); }
+  if (nmR) { const g = document.createElement('span'); g.className = 'gms'; g.id = 'gmsR'; nmR.before(g); }
+  const ft = document.createElement('div'); ft.id = 'fmtTag'; $('hud').appendChild(ft);
+  $('rpSkip').onclick = () => { if (RP.play) skipReplay(); else if (END.active) { END.skipAll = true; finishEnd(); } };
+  window.addEventListener('keydown', e => {
+    if (e.code !== 'Space' && e.key !== 'Escape') return;
+    if (!RP.play && !END.active) return;
+    e.preventDefault(); $('rpSkip').click();
+  });
+}
+initReplayUI();
 
 /* =====================================================================
    RENDER
@@ -2811,6 +3753,11 @@ function placePaddle(mesh, pd, sd, dt) {
 
 function render(dt, now) {
   const t = now / 1000;
+  if (RP.play) replayPose(); else renderLive(dt);
+  recFrame(dt);
+  renderWorld(dt, t);
+}
+function renderLive(dt) {
   ballMesh.visible = blob.visible = ballGlow.visible = S.ballVisible;
   if (S.ballVisible) {
     const p = S.ball.p, w = S.ball.w;
@@ -2842,7 +3789,8 @@ function render(dt, now) {
     placePaddle(myPaddleMesh, me, S.mySide, dt);
     placePaddle(oppPaddleMesh, S.mode === 'solo' ? bot : opp, -S.mySide, dt);
   }
-
+}
+function renderWorld(dt, t) {
   // animações do ambiente
   ledFlash = Math.max(0, ledFlash - dt * 1.2);
   jumboMat.emissiveIntensity = 1.0 + ledFlash * 0.5;
@@ -2852,10 +3800,12 @@ function render(dt, now) {
   updateArena(t, dt);
   updateDust(t, dt);
   sparks.update(dt); confetti.update(dt); pyro.update(dt);
+  updateRacketFx(myPaddleMesh, t, dt); updateRacketFx(oppPaddleMesh, t, dt); aura.update(dt);
+  updateFireworks(dt); fwSolid.update(dt);
   updateRings(dt);
   updateNet(dt * TIME_SCALE);
 
-  composer.render(dt);
+  if (!window.__ppNoRender) composer.render(dt);    // testes automáticos podem pular o desenho
 }
 
 function onResize() {
@@ -2873,7 +3823,12 @@ function frame(now) {
   requestAnimationFrame(frame);
   const rawDt = (now - last) / 1000;
   const dt = Math.min(rawDt, 0.05); last = now;
-  if (S.phase === 'lobby') {
+  if (RP.play) {
+    replayStep(dt);
+    if (RP.play) replayCamera(dt); else updateCamera(dt, now);
+  } else if (END.active && END.stage === 'party') {
+    endStep(dt);
+  } else if (S.phase === 'lobby') {
     const a = now / 11000;
     camera.position.set(Math.sin(a) * 5.2, 2.6 + Math.sin(a * 2) * 0.4, Math.cos(a) * 5.2);
     camera.lookAt(0, TH, 0);
@@ -2883,7 +3838,7 @@ function frame(now) {
     updateMyPaddle(dt);
     perfMonitor(rawDt);
   }
-  acc += dt * TIME_SCALE;
+  if (!S.paused) acc += dt * TIME_SCALE;
   let n = 0;
   while (acc >= DT && n++ < 60) { physicsStep(DT); acc -= DT; }
   if (S.mode === 'online') {
@@ -2934,4 +3889,4 @@ checkVipLink();
 const roomParam = new URLSearchParams(location.search).get('sala');
 if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
 
-window.__pp = { awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+window.__pp = { RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
