@@ -37,13 +37,21 @@ npx vercel --prod # publica em produção
 3. Partida até 11, com 2 de vantagem; o saque troca a cada 2 pontos (a cada 1 a partir de 10×10).
 
 **Controles:** mova o mouse/dedo para posicionar a raquete. Na hora que a bola chega, faça um movimento
-rápido **para cima**. Mais rápido = bola mais rápida e funda (rápido demais = bola longa). Mexer para o lado
-ao bater direciona a bola e dá **efeito lateral** (curva no ar). Puxar a raquete **para trás** = **corte**
-(backspin). Raquete parada = bloqueio, que devolve o ritmo da bola que veio.
+rápido **para cima**. Mais rápido = bola mais rápida; o topspin segura a bola na mesa, e ela só sai num
+gesto exageradamente forte. Arrastar de lado (ex.: da esquerda pra direita) ao bater direciona a bola e
+dá **efeito lateral**: ela faz curva no ar e "quebra" para o lado no quique. Puxar a raquete **para trás** =
+**corte** (backspin). Raquete parada = bloqueio, que devolve o ritmo da bola que veio.
 
 **Física de efeito:** o efeito que vem na bola muda a sua devolução, como no jogo real. Bloquear um topspin
 forte faz a bola espirrar mais longa, bloquear um corte joga a bola na rede (é preciso bater forte para cima
 ou cortar de volta) e o efeito lateral desvia a bola para o lado.
+
+**Rede:** a rede estufa quando a bola bate nela e a fita vibra quando a bola raspa. Bola que raspa na fita
+perde velocidade e pode cair logo depois da rede. Saque que toca na rede e entra = **LET** (repete o saque).
+
+**Mesa e raquetes:** a mesa é ~6% mais larga que a oficial (1,62 m). As raquetes seguem medidas reais
+ampliadas 1,2×: lâmina de madeira compensada, borracha com esponja e logo, cabo anatômico com placa.
+Borrachas nas cores permitidas pela ITTF (um lado sempre preto).
 
 **Som:** as batidas na raquete e na mesa usam sons reais gravados (pasta `sounds/`, carregados pelo
 jsDelivr com reserva no GitHub), com volume pela força do impacto, estéreo pela posição da bola e um

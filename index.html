@@ -196,7 +196,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 /* =====================================================================
    CONSTANTES (metros / segundos) — medidas oficiais da mesa
    ===================================================================== */
-const TL = 2.74, TW = 1.525, TH = 0.76, NET_H = 0.1525, R = 0.02;
+const TL = 2.74, TW = 1.62, TH = 0.76, NET_H = 0.1525, R = 0.02;   // mesa ~6% mais larga que a oficial (1,525 m)
 const HL = TL / 2, HW = TW / 2;
 const NET_HALF = HW + 0.1525;
 const BALL_Y = TH + R;
@@ -204,6 +204,7 @@ const NET_TOP = TH + NET_H;
 const G = 9.81;
 const KD = 0.045;               // arrasto do ar
 const KM = 0.0032;              // efeito Magnus (spin)
+const SIDE_KICK = 0.0004;       // quanto o efeito lateral desvia a bola no quique
 const DT = 1 / 240;             // passo fixo da física
 const TIME_SCALE = 0.72;        // câmera lenta leve p/ ficar jogável
 const POWER_DIV = 2.1;          // velocidade do gesto (alturas de tela/s) -> força
@@ -232,19 +233,30 @@ function stepBall(b, dt, events, collide) {
     const f = pz / (pz - p[2]);
     const yc = py + (p[1] - py) * f, xc = px + (p[0] - px) * f;
     if (Math.abs(xc) < NET_HALF && yc < NET_TOP + R && yc > TH - 0.02) {
-      p[2] = Math.sign(pz || 1) * (R + 0.002);
-      const vin = Math.abs(v[2]);
-      v[2] = -v[2] * 0.12; v[0] *= 0.5; v[1] *= 0.3;
-      w[0] *= 0.3; w[1] *= 0.3; w[2] *= 0.3;
-      events && events.push({ t: 'net', x: xc, y: yc, s: vin });
+      const vin = Math.abs(v[2]), dir = Math.sign(v[2]);
+      if (yc > NET_TOP - R * 0.3) {
+        // raspou na fita da rede: passa, mas perde velocidade e sobe (quanto mais baixo, mais "morre")
+        const g = clamp((yc - (NET_TOP - R * 0.3)) / (R * 1.3), 0, 1);
+        v[2] *= lerp(0.3, 0.92, g); v[0] *= lerp(0.8, 0.98, g);
+        v[1] = lerp(Math.abs(v[1]) * 0.3 + 0.9, v[1], g);
+        const k = lerp(0.4, 0.9, g); w[0] *= k; w[1] *= k; w[2] *= k;
+        events && events.push({ t: 'net', x: xc, y: yc, s: vin, graze: 1, dir });
+      } else {
+        p[2] = Math.sign(pz || 1) * (R + 0.002);
+        v[2] = -v[2] * 0.12; v[0] *= 0.5; v[1] *= 0.3;
+        w[0] *= 0.3; w[1] *= 0.3; w[2] *= 0.3;
+        events && events.push({ t: 'net', x: xc, y: yc, s: vin, graze: 0, dir });
+      }
     }
   }
   if (v[1] < 0 && py >= BALL_Y && p[1] < BALL_Y && Math.abs(p[0]) <= HW + R * 0.5 && Math.abs(p[2]) <= HL + R * 0.5) {
     p[1] = BALL_Y + (BALL_Y - p[1]);                   // mesa
     const vin = -v[1];
     v[1] = -v[1] * 0.9;
-    v[0] = v[0] * 0.98 + 0.18 * (-w[2] * R);
-    v[2] = v[2] * 0.98 + 0.18 * (w[0] * R);
+    // efeito lateral "quebra" no quique (exagerado de leve, como nos jogos de celular)
+    const kx = SIDE_KICK * w[1] * v[2], kz = -SIDE_KICK * w[1] * v[0];
+    v[0] = v[0] * 0.98 + 0.18 * (-w[2] * R) + kx;
+    v[2] = v[2] * 0.98 + 0.18 * (w[0] * R) + kz;
     w[0] *= 0.6; w[1] *= 0.6; w[2] *= 0.6;
     events && events.push({ t: 'table', x: p[0], z: p[2], s: vin });
   }
@@ -276,17 +288,22 @@ function makeShot(side, B, power, tx, sideSpin, serve, o = {}) {
   const pw = Math.max(0, power);
   const chop = !!o.chop && !serve;
   let depth, sh, top;
+  // Força acima de 1 deixa a bola mais rápida, mas ela continua na mesa (o topspin segura).
+  // Só uma batida MUITO forte (bem acima do normal) manda a bola para fora.
+  let outExtra = 0;
   if (serve) {
-    depth = 0.55 + 0.7 * Math.min(pw, 1) + 1.1 * Math.max(0, pw - 1.2);
-    sh = 2.6 + 3.0 * Math.min(pw, 1.2);
+    depth = 0.55 + 0.7 * Math.min(pw, 1) + 0.05 * clamp(pw - 1, 0, 0.8);
+    outExtra = 0.9 * Math.max(0, pw - 1.8);
+    sh = 2.6 + 3.0 * Math.min(pw, 1) + 1.0 * clamp(pw - 1, 0, 0.8);
     top = 25;
   } else if (chop) {
     depth = 0.4 + 0.8 * Math.min(pw, 1);
     sh = 2.3 + 3.0 * Math.min(pw, 1);
     top = -(50 + 90 * Math.min(pw, 1));
   } else {
-    depth = 0.32 + 0.93 * Math.min(pw, 1) + 1.3 * Math.max(0, pw - 1.15);
-    sh = 2.4 + 6.6 * Math.min(pw, 1.25) / 1.25;      // devagar = bola lenta, rápido = bola rápida
+    depth = 0.32 + 0.9 * Math.min(pw, 1) + 0.06 * clamp(pw - 1, 0, 0.9);
+    outExtra = 1.0 * Math.max(0, pw - 1.9);
+    sh = 2.4 + 6.0 * Math.min(pw, 1) + 1.8 * clamp(pw - 1, 0, 0.9);   // devagar = bola lenta, rápido = bola rápida
     top = pw < 0.15 ? -20 : 40 + 100 * Math.min(pw, 1.2);
   }
   // Reação ao efeito que veio na bola (física do contato bola-borracha):
@@ -298,15 +315,19 @@ function makeShot(side, B, power, tx, sideSpin, serve, o = {}) {
     const vert = o.inW[0] * rz;               // >0 topspin recebido, <0 backspin recebido
     const absorb = chop ? 0.55 : clamp(0.3 + pw * 0.6, 0.3, 0.9);
     tx += lat * 0.35 * (1 - absorb);
-    let dAdd = vert * 0.55 * (1 - absorb);
+    let dAdd = vert * 0.4 * (1 - absorb);
     if (chop && vert < 0) dAdd = 0;            // cortar um corte é natural
-    if (dAdd < -0.25 && pw < 0.5) netFail = true;
+    if (dAdd < -0.2 && pw < 0.5) netFail = true;
     depth = Math.max(0.15, depth + dAdd);
     // bloqueio/toque devolve o ritmo da bola que chegou (mais rápida e mais funda)
     const pace = (o.inSpeed || 0) * (1 - Math.min(pw, 1));
     sh += pace * 0.5;
-    if (!chop) depth += pace * 0.05;
+    if (!chop) depth += pace * 0.04;
   }
+  // o topspin "segura" a bola: sem exagero de força ela cai antes do fim da mesa
+  depth = clamp(depth, 0.15, HL - 0.07) + outExtra;
+  // mira lateral com limite suave: só sai pela lateral num movimento muito exagerado
+  { const lim = HW - 0.07, a = Math.abs(tx); if (a > lim) tx = Math.sign(tx) * (lim + (a - lim) * 0.25); }
   const T = [tx, BALL_Y, -side * depth];
   const dx = T[0] - B[0], dz = T[2] - B[2];
   const dist = Math.hypot(dx, dz) || 1;
@@ -342,6 +363,15 @@ function makeShot(side, B, power, tx, sideSpin, serve, o = {}) {
       v[1] = base * k;
       const l = simFlight(B, v, w);
       if (l && l.netY !== null && l.netY < NET_TOP - 0.02) break;
+    }
+  } else if (Math.random() < (serve ? 0.06 : 0.03 + 0.04 * clamp(pw - 0.8, 0, 1))) {
+    // de vez em quando a bola passa baixinho e raspa na fita da rede (como no jogo real)
+    const base = v[1];
+    for (let k = 0.995; k > 0.6; k -= 0.005) {
+      v[1] = base * k;
+      const l = simFlight(B, v, w);
+      if (!l || l.netY === null) { v[1] = base; break; }
+      if (l.netY < NET_TOP + R * 0.55) { if (l.netY < NET_TOP - R * 0.15) v[1] = base; break; }
     }
   }
   let label = 'TOP-SPIN';
@@ -625,10 +655,49 @@ const netTex = canvasTex(1024, 128, (g, w, h) => {
   for (let y = 0; y < h; y += 7) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
   g.fillStyle = 'rgba(255,255,255,.9)'; g.font = 'italic 900 34px system-ui'; g.textAlign = 'center'; g.fillText('PING PONG ONLINE', w / 2, h / 2 + 14);
 });
-const net = new THREE.Mesh(new THREE.PlaneGeometry(NET_HALF * 2, NET_H), new THREE.MeshStandardMaterial({ map: netTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, roughness: 0.8 }));
+// rede subdividida: os vértices se deslocam quando a bola bate (estufa) ou raspa (a fita vibra)
+const net = new THREE.Mesh(new THREE.PlaneGeometry(NET_HALF * 2, NET_H, 64, 8), new THREE.MeshStandardMaterial({ map: netTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, roughness: 0.8 }));
 net.position.set(0, TH + NET_H / 2, 0); table.add(net);
-const netBand = new THREE.Mesh(new THREE.BoxGeometry(NET_HALF * 2, 0.015, 0.006), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 }));
+const netBand = new THREE.Mesh(new THREE.BoxGeometry(NET_HALF * 2, 0.015, 0.006, 64, 1, 1), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 }));
 netBand.position.set(0, NET_TOP - 0.0075, 0); table.add(netBand);
+const netWaves = [];
+const netParts = [net, netBand].map(m => ({ m, base: Float32Array.from(m.geometry.attributes.position.array), oy: m.position.y }));
+// deslocamento (em z) de um ponto da rede em x, altura y (coordenadas do mundo)
+function netDisp(x, y) {
+  let d = 0;
+  const post = Math.sin(Math.PI * clamp((x + NET_HALF) / (2 * NET_HALF), 0, 1));   // presa nos postes
+  for (const w of netWaves) {
+    const lx = (x - w.x) / w.sx;
+    let vp;
+    if (w.graze) vp = 0.25 + 0.75 * clamp((y - TH) / NET_H, 0, 1);                   // raspão: mexe mais a fita de cima
+    else { const ly = (y - w.y) / 0.085; vp = 0.3 + 0.7 * Math.exp(-ly * ly); }   // batida: estufa onde bateu
+    d += w.a * Math.exp(-w.t / w.tau) * Math.cos(w.om * w.t) * Math.exp(-lx * lx) * vp;
+  }
+  return d * post;
+}
+function netHit(e) {
+  const graze = !!e.graze, s = clamp(e.s / 6, 0.3, 1.3);
+  netWaves.push(graze
+    ? { x: e.x, y: NET_TOP, a: e.dir * (0.006 + 0.008 * s), sx: 0.4, tau: 0.32, om: 2 * Math.PI * 11, t: 0, graze: 1 }
+    : { x: e.x, y: e.y, a: e.dir * (0.022 + 0.028 * s), sx: 0.24, tau: 0.22, om: 2 * Math.PI * 6.5, t: 0, graze: 0 });
+  if (netWaves.length > 4) netWaves.shift();
+  if (graze && S.phase === 'rally') {
+    showLabel('RASPOU NA REDE!');
+    if (typeof crowdVoice === 'function') crowdVoice('ohh', 0.4);
+  }
+}
+let netIdle = true;
+function updateNet(dt) {
+  for (const w of netWaves) w.t += dt;
+  while (netWaves.length && netWaves[0].t > netWaves[0].tau * 6) netWaves.shift();
+  if (!netWaves.length && netIdle) return;
+  netIdle = !netWaves.length;
+  for (const P of netParts) {
+    const pos = P.m.geometry.attributes.position, arr = pos.array, base = P.base;
+    for (let i = 0; i < arr.length; i += 3) arr[i + 2] = base[i + 2] + (netIdle ? 0 : netDisp(base[i], base[i + 1] + P.oy));
+    pos.needsUpdate = true;
+  }
+}
 for (const s of [-1, 1]) {
   const post = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, NET_H + 0.02, 12), metal);
   post.position.set(s * (NET_HALF + 0.005), TH + NET_H / 2, 0); table.add(post);
@@ -666,7 +735,7 @@ trailGeo.setAttribute('color', new THREE.BufferAttribute(tCol, 3));
 const trailMesh = new THREE.Mesh(trailGeo, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
 trailMesh.frustumCulled = false; scene.add(trailMesh);
 const trailColor = new THREE.Color(0x22ff88);
-const TRAIL_COLORS = { 'TOP-SPIN': 0x22ff88, 'SMASH!': 0xff2844, 'BLOQUEIO': 0x44aaff, 'SIDE-SPIN': 0xffcc22, 'SAQUE': 0xffffff, 'CORTE': 0x40e0ff };
+const TRAIL_COLORS = { 'RASPOU NA REDE!': 0xffd34d, 'TOP-SPIN': 0x22ff88, 'SMASH!': 0xff2844, 'BLOQUEIO': 0x44aaff, 'SIDE-SPIN': 0xffcc22, 'SAQUE': 0xffffff, 'CORTE': 0x40e0ff };
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
 function updateTrail() {
   const n = trailPts.length;
@@ -690,31 +759,132 @@ function updateTrail() {
 /* =====================================================================
    RAQUETES
    ===================================================================== */
-function makePaddle(rubberColor, opacity = 1, backColor = 0x151515) {
+// Raquete modelada em medidas reais (lâmina 150×158 mm, cabo FL de ~10 cm) e ampliada 1,2× para o jogo:
+// lâmina de madeira compensada (camadas visíveis na borda), borracha com esponja e logo, cabo anatômico com placa.
+const PADDLE_SCALE = 1.2;
+const BLADE_A = 0.075, BLADE_B = 0.079, BLADE_T = 0.0062, RUBBER_T = 0.0021;
+const bladeShape = (() => {
+  const sh = new THREE.Shape(), n = 2.12, N = 96;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N * Math.PI * 2, c = Math.cos(t), si = Math.sin(t);
+    const x = BLADE_A * Math.sign(c) * Math.pow(Math.abs(c), 2 / n);
+    const y = BLADE_B * Math.sign(si) * Math.pow(Math.abs(si), 2 / n) * (si < 0 ? 0.97 : 1);
+    i ? sh.lineTo(x, y) : sh.moveTo(x, y);
+  }
+  return sh;
+})();
+function extrudeUV(depth) {
+  const minX = -BLADE_A, minY = -BLADE_B, w = 2 * BLADE_A, h = 2 * BLADE_B;
+  return {
+    generateTopUV(g, v, a, b, c) { return [a, b, c].map(i => new THREE.Vector2((v[i * 3] - minX) / w, (v[i * 3 + 1] - minY) / h)); },
+    generateSideWallUV(g, v, a, b, c, d) { return [a, b, c, d].map(i => new THREE.Vector2((Math.atan2(v[i * 3 + 1], v[i * 3]) / 6.283 + 0.5) * 4, v[i * 3 + 2] / depth)); }
+  };
+}
+const plyTex = canvasTex(32, 64, (g, w, h) => {      // camadas da madeira (de fora para dentro e de volta)
+  const L = [['#e8cf9e', 9], ['#6e4524', 3], ['#d6ad74', 9], ['#f1dcae', 22], ['#d6ad74', 9], ['#6e4524', 3], ['#e8cf9e', 9]];
+  let y = 0; for (const [c, t] of L) { g.fillStyle = c; g.fillRect(0, y, w, t); y += t; }
+});
+const handleTex = canvasTex(256, 512, (g, w, h) => {
+  g.fillStyle = '#c8955a'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 140; i++) {                      // veios da madeira ao longo do cabo
+    const x = Math.random() * w; g.strokeStyle = `rgba(${Math.random() < 0.5 ? '90,52,20' : '235,200,150'},${0.08 + Math.random() * 0.14})`;
+    g.lineWidth = 0.6 + Math.random() * 1.8; g.beginPath(); g.moveTo(x, 0);
+    for (let y = 0; y <= h; y += 32) g.lineTo(x + Math.sin(y * 0.01 + i) * 3, y); g.stroke();
+  }
+  for (const u of [0, 0.5, 1]) {                       // laterais em madeira escura (filete)
+    const cx = u * w; g.fillStyle = '#4a2a12'; g.fillRect(cx - 14, 0, 28, h);
+    g.fillStyle = '#e9c48c'; g.fillRect(cx - 17, 0, 3, h); g.fillRect(cx + 14, 0, 3, h);
+  }
+});
+const badgeTex = canvasTex(128, 192, (g, w, h) => {
+  g.fillStyle = '#1b1b1f'; g.beginPath(); g.ellipse(w / 2, h / 2, w / 2 - 4, h / 2 - 4, 0, 0, 6.3); g.fill();
+  g.strokeStyle = '#d9b45a'; g.lineWidth = 6; g.stroke();
+  g.fillStyle = '#e8c56a'; g.textAlign = 'center'; g.font = 'italic 900 44px system-ui'; g.fillText('PPO', w / 2, h / 2 + 4);
+  g.font = '700 15px system-ui'; g.fillText('CARBON', w / 2, h / 2 + 30);
+});
+function rubberTexFor(hex) {
+  const c = new THREE.Color(hex), dark = c.r + c.g + c.b < 0.4;
+  const css = '#' + c.getHexString();
+  return {
+    top: canvasTex(512, 512, (g, w, h) => {
+      g.fillStyle = css; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 22000; i++) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,255,255'},${Math.random() * (dark ? 0.05 : 0.07)})`; g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5); }
+      const sh = g.createRadialGradient(w * 0.38, h * 0.3, 10, w * 0.38, h * 0.3, w * 0.7);   // brilho de borracha "grudenta"
+      sh.addColorStop(0, 'rgba(255,255,255,.10)'); sh.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = sh; g.fillRect(0, 0, w, h);
+      g.textAlign = 'center'; g.fillStyle = dark ? '#e3c063' : 'rgba(255,255,255,.92)';
+      g.font = 'italic 900 60px system-ui'; g.fillText('PPO', w / 2, h * 0.76);
+      g.font = '800 19px system-ui'; g.fillText('S P E E D   4 7 °', w / 2, h * 0.815);
+      g.fillRect(w * 0.32, h * 0.835, w * 0.36, 3);
+    }),
+    side: canvasTex(16, 64, (g, w, h) => {             // borda: lâmina fina da borracha + esponja porosa
+      g.fillStyle = css; g.fillRect(0, 0, w, 18);
+      g.fillStyle = '#efb43c'; g.fillRect(0, 18, w, h - 18);
+      for (let i = 0; i < 60; i++) { g.fillStyle = 'rgba(150,90,10,.5)'; g.fillRect(Math.random() * w, 18 + Math.random() * (h - 18), 1.4, 1.4); }
+    })
+  };
+}
+function loftGeometry(secs, N = 28, ex = 2.6) {        // cabo: seções ovais com largura/espessura variáveis
+  const pos = [], uv = [], idx = [], rows = secs.length;
+  for (let i = 0; i < rows; i++) {
+    const [y, hw, ht] = secs[i];
+    for (let j = 0; j <= N; j++) {
+      const f = j / N * Math.PI * 2, c = Math.cos(f), si = Math.sin(f);
+      pos.push(hw * Math.sign(c) * Math.pow(Math.abs(c), 2 / ex), y, ht * Math.sign(si) * Math.pow(Math.abs(si), 2 / ex));
+      uv.push(j / N, 1 - i / (rows - 1));
+    }
+  }
+  for (let i = 0; i < rows - 1; i++) for (let j = 0; j < N; j++) {
+    const a = i * (N + 1) + j, b = a + N + 1;
+    idx.push(a, a + 1, b, a + 1, b + 1, b);
+  }
+  for (const [r, flip] of [[0, true], [rows - 1, false]]) {   // tampas
+    const ci = pos.length / 3; pos.push(0, secs[r][0], 0); uv.push(0.5, r ? 0 : 1);
+    for (let j = 0; j < N; j++) { const a = r * (N + 1) + j; flip ? idx.push(ci, a + 1, a) : idx.push(ci, a, a + 1); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+const HANDLE_SECS = [[-0.057, 0.007, 0.0054], [-0.064, 0.0185, 0.006], [-0.078, 0.0158, 0.0084], [-0.092, 0.0136, 0.0099], [-0.115, 0.0126, 0.0107],
+  [-0.14, 0.014, 0.0112], [-0.162, 0.0164, 0.0116], [-0.173, 0.0178, 0.0112], [-0.178, 0.0163, 0.0088], [-0.1806, 0.0112, 0.0056], [-0.1814, 0.004, 0.002]];
+const bladeGeo = new THREE.ExtrudeGeometry(bladeShape, { depth: BLADE_T, bevelEnabled: false, curveSegments: 1, UVGenerator: extrudeUV(BLADE_T) });
+bladeGeo.translate(0, 0, -BLADE_T / 2);
+const rubberGeo = new THREE.ExtrudeGeometry(bladeShape, { depth: RUBBER_T, bevelEnabled: false, curveSegments: 1, UVGenerator: extrudeUV(RUBBER_T) });
+const handleGeo = loftGeometry(HANDLE_SECS);
+const badgeGeo = new THREE.PlaneGeometry(0.013, 0.021);
+
+function makePaddle(frontColor, backColor = 0x1a1a1c, opacity = 1) {
   const root = new THREE.Group(); const pivot = new THREE.Group(); root.add(pivot);
-  const tr = opacity < 1;
-  const mk = (o) => new THREE.MeshStandardMaterial({ roughness: 0.6, transparent: tr, opacity, ...o });
-  const rubberTex = canvasTex(256, 256, (g, w, h) => {
-    g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
-    g.fillStyle = 'rgba(0,0,0,.07)';
-    for (let y = 4; y < h; y += 8) for (let x = (y / 8 % 2) * 4; x < w; x += 8) { g.beginPath(); g.arc(x, y, 2, 0, 6.3); g.fill(); }
-    g.fillStyle = 'rgba(255,255,255,.85)'; g.font = 'italic 900 22px system-ui'; g.textAlign = 'center'; g.fillText('PRO', w / 2, h * 0.84);
-  });
-  const wood = new THREE.Mesh(new THREE.CylinderGeometry(0.083, 0.083, 0.007, 48), mk({ color: 0xd8b07e, roughness: 0.5 }));
-  wood.rotation.x = Math.PI / 2; wood.castShadow = true; pivot.add(wood);
-  const front = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.003, 48), mk({ color: rubberColor, map: rubberTex, roughness: 0.75 }));
-  front.rotation.x = Math.PI / 2; front.position.z = -0.005; pivot.add(front);
-  const back = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.003, 48), mk({ color: backColor, map: rubberTex, roughness: 0.8 }));
-  back.rotation.x = Math.PI / 2; back.position.z = 0.005; pivot.add(back);
-  const prof = [[0.019, 0], [0.017, 0.03], [0.015, 0.07], [0.016, 0.1], [0.022, 0.12], [0.03, 0.128]].map(([r, y]) => new THREE.Vector2(r, y));
-  const handle = new THREE.Mesh(new THREE.LatheGeometry(prof, 20), mk({ color: 0xb37a44, roughness: 0.5 }));
-  handle.scale.z = 0.62; handle.position.y = -0.205; handle.castShadow = true; pivot.add(handle);
+  const racket = new THREE.Group(); racket.scale.setScalar(PADDLE_SCALE); pivot.add(racket);
+  const tr = opacity < 1, base = { transparent: tr, opacity };
+  const ply = new THREE.MeshStandardMaterial({ map: plyTex, roughness: 0.6, ...base });
+  const blade = new THREE.Mesh(bladeGeo, [ply, ply]); blade.castShadow = true; racket.add(blade);
+  // frente (lado -z, virado para a rede/adversário) e verso (+z)
+  for (const [col, sideZ] of [[frontColor, -1], [backColor, 1]]) {
+    const t = rubberTexFor(col);
+    const top = new THREE.MeshPhysicalMaterial({ map: t.top, roughness: 0.55, clearcoat: 0.28, clearcoatRoughness: 0.45, ...base });
+    const edge = new THREE.MeshStandardMaterial({ map: t.side, roughness: 0.9, ...base });
+    const rb = new THREE.Mesh(rubberGeo, [top, edge]);
+    rb.position.z = sideZ * BLADE_T / 2;
+    if (sideZ < 0) rb.rotation.y = Math.PI;          // a face de fora fica para fora (e o logo legível)
+    rb.castShadow = true; racket.add(rb);
+  }
+  const wood = new THREE.MeshPhysicalMaterial({ map: handleTex, roughness: 0.42, clearcoat: 0.35, clearcoatRoughness: 0.35, ...base });
+  const handle = new THREE.Mesh(handleGeo, wood); handle.castShadow = true; racket.add(handle);
+  const bm = new THREE.MeshStandardMaterial({ map: badgeTex, roughness: 0.3, metalness: 0.5, transparent: true, opacity, alphaTest: 0.05 });
+  for (const sz of [-1, 1]) {
+    const b = new THREE.Mesh(badgeGeo, bm); b.position.set(0, -0.128, sz * 0.0112);
+    if (sz < 0) b.rotation.y = Math.PI; racket.add(b);
+  }
   scene.add(root);
   root.userData = { pivot, swing: 0, vx: 0, vz: 0, lx: 0, lz: 0 };
   return root;
 }
-const myPaddleMesh = makePaddle(0xb067ff, 0.85, 0x8a4fe0);
-const oppPaddleMesh = makePaddle(0xff2a44);
+// borrachas coloridas permitidas pela ITTF: um lado sempre preto
+const myPaddleMesh = makePaddle(0x1a1a1c, 0x8f3dff, 0.88);     // você vê o lado violeta
+const oppPaddleMesh = makePaddle(0xe0192f, 0x1a1a1c);           // o adversário mostra o lado vermelho
 
 /* =====================================================================
    PARTÍCULAS (faíscas, poeira, confete) e ondas de impacto
@@ -861,7 +1031,7 @@ function updateMyPaddle(dt) {
   raycaster.setFromCamera(_ndc, camera);
   if (raycaster.ray.intersectPlane(hitPlane, _hit)) {
     const sd = S.mySide;
-    me.x = clamp(_hit.x, -1.4, 1.4);
+    me.x = clamp(_hit.x, -1.5, 1.5);
     me.z = sd * clamp(_hit.z * sd, HL - 0.45, HL + 1.15);
   }
   autoY(me, S.mySide, dt);
@@ -883,7 +1053,7 @@ function canSideHit(sd) { return S.phase === 'rally' && S.rally.hitter === -sd &
 function inHitWindow(sd, pd) {
   const b = S.ball.p;
   const bd = b[2] * sd, pdep = pd.z * sd;
-  return bd >= pdep - 0.15 && bd <= pdep + 0.2 && Math.abs(b[0] - pd.x) < 0.26 && b[1] > TH - 0.38 && b[1] < TH + 0.95;
+  return bd >= pdep - 0.15 && bd <= pdep + 0.2 && Math.abs(b[0] - pd.x) < 0.29 && b[1] > TH - 0.38 && b[1] < TH + 0.95;
 }
 
 function playerHit(serve) {
@@ -892,9 +1062,10 @@ function playerHit(serve) {
   const chop = !serve && sv.up < -0.55;                       // puxou a raquete para trás = corte
   const power = chop ? clamp(-sv.up / POWER_DIV * 0.7, 0.1, 0.8) : Math.max(0, sv.up) / POWER_DIV;
   const B = [...S.ball.p];
-  const tx = B[0] * 0.3 + sd * sv.x * 0.32;                   // a bola sai para o lado do gesto
+  const tx = B[0] * 0.3 + sd * sv.x * 0.24;                   // a bola sai para o lado do gesto
   // raquete raspando de lado gira a bola no eixo vertical (sidespin) -> curva no ar (Magnus)
-  const sideSpin = clamp(sv.x * 30 * (serve ? 1.2 : 1), -110, 110);
+  // e uma "quebra" no quique: bater da esquerda pra direita faz a bola fazer a curva
+  const sideSpin = clamp(sv.x * 55 * (serve ? 1.2 : 1), -260, 260);
   const shot = makeShot(sd, B, power, tx, sideSpin, serve, serve ? {} : { inW: [...S.ball.w], inSpeed: Math.hypot(...S.ball.v), chop });
   applyHit(sd, B, shot, serve);
   if (S.mode === 'online') send({ t: 'hit', side: sd, p: B, v: shot.v, w: shot.w, serve, label: shot.label });
@@ -922,7 +1093,10 @@ function evalEvent(e) {
   if (e.t === 'table') {
     if (e.z * Rv > 0) {
       S.rally.rb++;
-      if (S.rally.rb === 1) S.rally.canHit = true;
+      if (S.rally.rb === 1) {
+        if (S.rally.serve && S.rally.net) awardPoint(0, 'let');   // saque tocou na rede e entrou: repete
+        else S.rally.canHit = true;
+      }
       else awardPoint(H, 'miss');
     } else {
       awardPoint(S.rally.rb === 0 ? Rv : H, S.rally.rb === 0 ? 'net' : 'miss');
@@ -934,13 +1108,19 @@ function evalEvent(e) {
 }
 
 function awardPoint(winner, reason) {
-  S.score[winner]++;
+  if (winner) S.score[winner]++;
   if (S.mode === 'online') send({ t: 'point', winner, reason, score: S.score });
   onPoint(winner, reason);
 }
 
 function onPoint(winner, reason) {
   S.phase = 'point'; S.phaseT = 0;
+  if (!winner) {                                  // LET: o saque é repetido, ninguém pontua
+    showMsg('LET', 'o saque tocou na rede, repete');
+    crowdVoice('ohh', 0.35);
+    S.streak = 0; updateHud();
+    return;
+  }
   const mine = winner === S.mySide;
   const who = S.mode === 'solo' ? 'do computador' : 'do seu amigo';
   let sub;
@@ -1022,12 +1202,12 @@ function botHit(serve) {
   let power = serve ? 0.3 + Math.random() * 0.6 : 0.4 + Math.random() * 0.55;
   let tx = (Math.random() * 2 - 1) * (serve ? 0.45 : 0.58);
   const r = Math.random();
-  if (!serve && r < 0.06) power = 1.4;
-  else if (!serve && r < 0.11) tx = Math.sign(tx || 1) * 0.98;
+  if (!serve && r < 0.05) power = 2.25 + Math.random() * 0.3;          // erro: bateu forte demais
+  else if (!serve && r < 0.09) tx = Math.sign(tx || 1) * (1.25 + Math.random() * 0.2);   // erro: abriu demais
   const B = [...S.ball.p];
   const chop = !serve && Math.random() < 0.12;
   if (chop) power = 0.3 + Math.random() * 0.4;
-  const shot = makeShot(sd, B, power, tx, (Math.random() * 2 - 1) * 45, serve, serve ? {} : { inW: [...S.ball.w], inSpeed: Math.hypot(...S.ball.v), chop });
+  const shot = makeShot(sd, B, power, tx, (Math.random() * 2 - 1) * (Math.random() < 0.3 ? 220 : 60), serve, serve ? {} : { inW: [...S.ball.w], inSpeed: Math.hypot(...S.ball.v), chop });
   applyHit(sd, B, shot, serve);
   bot.lunge = 0.22;
 }
@@ -1062,14 +1242,14 @@ function physicsStep(dt) {
     else { S.ballVisible = !!S.serveBall; if (S.serveBall) S.ball.p = [...S.serveBall]; }
     if (S.server === S.mySide && S.phaseT > 0.45) {
       const bd = S.ball.p[2] * S.mySide, cd = me.z * S.mySide;
-      if (me.prevDepth > bd && cd <= bd + 0.02 && Math.abs(me.x - S.ball.p[0]) < 0.26) playerHit(true);
+      if (me.prevDepth > bd && cd <= bd + 0.02 && Math.abs(me.x - S.ball.p[0]) < 0.29) playerHit(true);
     }
   } else if (S.phase === 'rally' || S.phase === 'point') {
     const ev = [];
     stepBall(S.ball, dt, ev, true);
     for (const e of ev) {
       if (e.t === 'table') { sfx('table', null, [e.x, TH, e.z], e.s / 4.2); fxBounce(e.x, e.z); }
-      else if (e.t === 'net') sfx('net', null, [e.x, e.y, 0], e.s / 6);
+      else if (e.t === 'net') { sfx('net', null, [e.x, e.y, 0], e.graze ? 0.3 + e.s / 30 : e.s / 6); netHit(e); }
       else if (e.t === 'floor' && e.s > 0.25) sfx('floor', null, [e.x, 0, e.z], e.s / 3.5);
     }
     if (S.phase === 'rally') {
@@ -1864,6 +2044,7 @@ function render(dt, now) {
   updateDust(t, dt);
   sparks.update(dt); confetti.update(dt);
   updateRings(dt);
+  updateNet(dt * TIME_SCALE);
 
   composer.render(dt);
 }
@@ -1900,6 +2081,7 @@ function frame(now) {
     opp.x = lerp(opp.x, opp.tx, k); opp.y = lerp(opp.y, opp.ty, k); opp.z = lerp(opp.z, opp.tz, k);
   }
   netTick(now);
+  if (window.__ppCam) window.__ppCam(camera);
   render(dt, now);
 }
 requestAnimationFrame(frame);
@@ -1909,7 +2091,7 @@ $('lobby').classList.remove('hidden');
 const roomParam = new URLSearchParams(location.search).get('sala');
 if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
 
-window.__pp = { S, me, bot, opp, camera, cam, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+window.__pp = { S, me, bot, opp, camera, cam, myPaddleMesh, oppPaddleMesh, netHit, net, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
 </script>
 </body>
 </html>
