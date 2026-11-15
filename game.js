@@ -1105,7 +1105,10 @@ const RACKETS = [
 ];
 const racketById = id => RACKETS.find(r => r.id === id) || RACKETS[0];
 const winCount = () => +store.get('pp_wins', '0') || 0;
-const isUnlocked = r => !r.unlock || winCount() >= r.unlock;
+// conta VIP: aberta pelo link secreto (?vip=código). Só o hash do código fica no jogo.
+const VIP_HASH = '58ad5d6d6e4e1bac078a1a8dc4c2c63af41e6747573939db4d1186abe1d7e5ae';
+const isVip = () => store.get('pp_vip', '0') === '1';
+const isUnlocked = r => !r.unlock || isVip() || winCount() >= r.unlock;
 const RTX = {};                                     // texturas de raquete em cache
 const rtx = (k, f) => RTX[k] || (RTX[k] = f());
 function plyTexFor(kind) {
@@ -2447,6 +2450,7 @@ function renderPick() {
   $('rkLock').classList.toggle('hidden', !locked);
   if (locked) $('rkLock').textContent = `🔒 ${winCount()}/${r.unlock}`;
   if (locked) $('rkDesc').textContent = `🔒 Vença ${r.unlock} partidas para liberar (você tem ${winCount()}). ` + r.desc;
+  $('vipTag').classList.toggle('hidden', !isVip());
   $('rkDots').innerHTML = RACKETS.map((_, i) => `<i class="${i === pickState.rk ? 'on' : ''}"></i>`).join('');
   $('arEmoji').textContent = a.emoji; $('arName').textContent = a.name; $('arTag').textContent = a.tag;
   $('arDots').innerHTML = ARENAS.map((_, i) => `<i class="${i === pickState.ar ? 'on' : ''}"></i>`).join('');
@@ -2471,6 +2475,7 @@ function initLobbyUI() {
   st.textContent = `
   .loadout { display: flex; flex-direction: column; gap: 7px; text-align: left; margin-bottom: 6px; }
   .lo-t { font-size: 11px; letter-spacing: .2em; font-weight: 900; opacity: .6; margin-top: 2px; }
+  .lo-t .vip { margin-left: 6px; padding: 2px 7px; border-radius: 999px; background: linear-gradient(90deg, #ffd34d, #ff9a3c); color: #1a1000; letter-spacing: .06em; opacity: 1; }
   .picker { display: flex; align-items: center; gap: 6px; }
   .pk-arrow { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 0; background: rgba(255,255,255,.09); color: #fff; font-size: 22px; line-height: 1; font-weight: 900; cursor: pointer; }
   .pk-arrow:hover { background: rgba(255,79,139,.35); }
@@ -2493,7 +2498,7 @@ function initLobbyUI() {
   document.head.appendChild(st);
   const wrap = document.createElement('div'); wrap.className = 'loadout';
   wrap.innerHTML = `
-    <div class="lo-t">SUA RAQUETE</div>
+    <div class="lo-t">SUA RAQUETE <span class="vip hidden" id="vipTag">⭐ VIP · TUDO LIBERADO</span></div>
     <div class="picker"><button class="pk-arrow" data-k="rk" data-d="-1" aria-label="Raquete anterior">‹</button>
       <div class="pk-card" id="rkCard"><img id="rkImg" alt="">
         <div class="pk-info"><div class="pk-name" id="rkName"></div><div class="pk-tag" id="rkTag"></div>
@@ -2631,6 +2636,39 @@ requestAnimationFrame(frame);
 $('loading').classList.add('hidden');
 $('lobby').classList.remove('hidden');
 
+function sha256hex(str) {                      // SHA-256 pequeno (funciona até sem HTTPS)
+  const K = [], H = [], isP = n => { for (let f = 2; f * f <= n; f++) if (n % f === 0) return false; return true; };
+  for (let n = 2, i = 0; i < 64; n++) if (isP(n)) { if (i < 8) H[i] = (Math.pow(n, 1 / 2) * 2 ** 32) | 0; K[i++] = (Math.pow(n, 1 / 3) * 2 ** 32) | 0; }
+  const bytes = [...new TextEncoder().encode(str)], bl = bytes.length * 8;
+  bytes.push(0x80); while (bytes.length % 64 !== 56) bytes.push(0);
+  for (let i = 7; i >= 0; i--) bytes.push(i > 3 ? 0 : (bl >>> (i * 8)) & 255);
+  const rr = (x, n) => (x >>> n) | (x << (32 - n)), W = new Array(64);
+  for (let o = 0; o < bytes.length; o += 64) {
+    for (let i = 0; i < 16; i++) W[i] = (bytes[o + i * 4] << 24) | (bytes[o + i * 4 + 1] << 16) | (bytes[o + i * 4 + 2] << 8) | bytes[o + i * 4 + 3];
+    for (let i = 16; i < 64; i++) { const s0 = rr(W[i - 15], 7) ^ rr(W[i - 15], 18) ^ (W[i - 15] >>> 3), s1 = rr(W[i - 2], 17) ^ rr(W[i - 2], 19) ^ (W[i - 2] >>> 10); W[i] = (W[i - 16] + s0 + W[i - 7] + s1) | 0; }
+    let [a, b, c, d, e, f, g, h] = H;
+    for (let i = 0; i < 64; i++) {
+      const t1 = (h + (rr(e, 6) ^ rr(e, 11) ^ rr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + W[i]) | 0, t2 = ((rr(a, 2) ^ rr(a, 13) ^ rr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+      h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    [a, b, c, d, e, f, g, h].forEach((v, i) => { H[i] = (H[i] + v) | 0; });
+  }
+  return H.map(v => (v >>> 0).toString(16).padStart(8, '0')).join('');
+}
+async function checkVipLink() {
+  const prm = new URLSearchParams(location.search), code = prm.get('vip');
+  if (!code) return;
+  prm.delete('vip');
+  history.replaceState(null, '', location.pathname + (prm.toString() ? '?' + prm : ''));
+  try {
+    const hex = sha256hex(code.trim());
+    if (hex === VIP_HASH) {
+      store.set('pp_vip', '1'); renderPick();
+      lobbyMsg('⭐ Conta VIP ativada neste aparelho: todas as raquetes liberadas!');
+    } else lobbyMsg('Esse código VIP não é válido.');
+  } catch (e) { lobbyMsg('Não deu para ativar o VIP neste navegador.'); }
+}
+checkVipLink();
 const roomParam = new URLSearchParams(location.search).get('sala');
 if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
 
