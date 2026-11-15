@@ -49,9 +49,29 @@ ou cortar de volta) e o efeito lateral desvia a bola para o lado.
 **Rede:** a rede estufa quando a bola bate nela e a fita vibra quando a bola raspa. Bola que raspa na fita
 perde velocidade e pode cair logo depois da rede. Saque que toca na rede e entra = **LET** (repete o saque).
 
-**Mesa e raquetes:** a mesa é ~6% mais larga que a oficial (1,62 m). As raquetes seguem medidas reais
-ampliadas 1,2×: lâmina de madeira compensada, borracha com esponja e logo, cabo anatômico com placa.
-Borrachas nas cores permitidas pela ITTF (um lado sempre preto).
+**Mesa:** ~6% mais larga que a oficial (1,62 m).
+
+## Raquetes
+Escolha no menu (setas ‹ ›). Cada uma tem **velocidade**, **efeito** e **controle**, que mudam a física de verdade:
+velocidade encurta o tempo de voo da bola, efeito aumenta topspin, corte e curva lateral, e controle deixa a bola
+mais certeira (com pouco controle a bola espalha e sai mais fácil numa batida exagerada).
+
+| Raquete | Vel. | Efeito | Controle | Estilo |
+|---|---|---|---|---|
+| Clássica | 3 | 3 | 4 | Equilibrada, madeira e borracha lisa |
+| Víbora | 3 | 5 | 3 | Borracha grudenta: muito topspin e curva |
+| Foguete | 5 | 2 | 2 | Carbono: muito rápida, pouco controle |
+| Muralha | 2 | 0 | 5 | Pino longo: sem efeito próprio, devolve o efeito do adversário invertido |
+| Raiz | 4 | 1 | 3 | Retrô sem esponja: bola reta e veloz |
+| Dragão Dourado | 4 | 4 | 4 | Lendária, libera com 3 vitórias |
+
+No online cada um usa a própria raquete (o adversário vê a sua). No treino, a CPU sorteia uma raquete por partida.
+Cada raquete tem visual próprio (lâmina, borracha, cabo) e um som de batida diferente.
+
+## Cenários
+Arena Neon, Ginásio do Bairro, Praia ao Pôr do Sol, Terraço da Cidade e Final Mundial. Cada um tem luz,
+decoração, torcida e som próprios (eco de ginásio, ondas do mar, barulho da cidade). No online vale o cenário
+de quem cria a sala. Praia, Terraço e Final têm fogos no fim da partida; a Final tem pirotecnia nos pontos.
 
 **Som:** as batidas na raquete e na mesa usam sons reais gravados (pasta `sounds/`, carregados pelo
 jsDelivr com reserva no GitHub), com volume pela força do impacto, estéreo pela posição da bola e um
@@ -64,9 +84,10 @@ A mensagem aparece para o seu amigo na hora; no treino, a CPU também responde. 
 4 mensagens em 4 segundos desativa o chat por 3 segundos (anti-spam).
 
 ## Torcida
-A torcida é sintetizada: murmúrio constante em estéreo, vozes que comemoram ("aaah!") ou lamentam
-("óóóh" quando a bola vai na rede ou sai), aplausos com palmas individuais, assobios nos pontos
-grandes, palmas ritmadas no match point e mais agitação nos rallies longos.
+Metade da torcida veste a sua cor (violeta) e torce por você; a outra metade (vermelho) torce pelo adversário.
+No ponto, quem torce pelo vencedor pula com os braços pra cima e o outro lado põe a mão na cabeça. Rally longo
+vira **ola** pela arquibancada, no match point todo mundo bate palma junto, e tem cartazes e flashes de celular.
+O som também é sintetizado: murmúrio em estéreo, "aaah!" e "óóóh", aplausos, assobios e palmas ritmadas.
 
 ## Testar localmente
 Precisa abrir por um servidor (não abra o arquivo direto com duplo clique):
@@ -76,7 +97,7 @@ npx serve .
 python3 -m http.server 8080
 ```
 
-## Ajustes fáceis (topo do script em `index.html`)
+## Ajustes fáceis (topo do `game.js`)
 | Constante | O que faz |
 |---|---|
 | `TIME_SCALE` | velocidade geral do jogo (0.72 = câmera lenta leve; 1 = tempo real) |
