@@ -10,7 +10,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 /* =====================================================================
    CONSTANTES (metros / segundos) — medidas oficiais da mesa
    ===================================================================== */
-const TL = 2.74, TW = 1.62, TH = 0.76, NET_H = 0.1525, R = 0.02;   // mesa ~6% mais larga que a oficial (1,525 m)
+const TL = 2.74, TW = 1.62, TH = 0.76, NET_H = 0.1525, R = 0.022;  // mesa ~6% mais larga que a oficial (1,525 m); bola 10% maior que a de antes
 const HL = TL / 2, HW = TW / 2;
 const NET_HALF = HW + 0.1525;
 const BALL_Y = TH + R;
@@ -1052,13 +1052,13 @@ function applyBallSkin(sk) {
   ballMat.needsUpdate = true;
 }
 applyBallSkin(ballSkin);
-const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.024, 28, 18), ballMat);
+const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.0264, 28, 18), ballMat);
 scene.add(ballMesh);
 // halo em volta da bola: desligado por padrão (dá para ligar nas configurações), bem mais fraco
 const ballGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: 0xffd9b0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.22 }));
 ballGlow.scale.set(0.08, 0.08, 1); scene.add(ballGlow);
 const blobMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false, alphaMap: dotTex });
-const blob = new THREE.Mesh(new THREE.CircleGeometry(0.032, 24), blobMat);
+const blob = new THREE.Mesh(new THREE.CircleGeometry(0.035, 24), blobMat);
 blob.rotation.x = -Math.PI / 2; scene.add(blob);
 
 const TRAIL_N = 50;
