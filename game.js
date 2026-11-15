@@ -1486,30 +1486,42 @@ canvas.addEventListener('pointerdown', e => {
 /* ---------- tela cheia com o mouse preso (para quem tem dois monitores) ----------
    Na partida, o jogo pede tela cheia e prende o mouse (Pointer Lock): o cursor some e não
    escapa para o outro monitor num gesto forte. Esc solta; no treino, soltar pausa o jogo. */
-const lock = { on: false, failed: false, x: window.innerWidth / 2, y: window.innerHeight * 0.75, rx: 0, ry: 0 };
-const lockSupported = () => !!canvas.requestPointerLock && !(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+const lock = { on: false, want: false, failed: false, skip: false, tries: 0, gestureT: 0, retryT: 0, err: '', toasted: false, x: window.innerWidth / 2, y: window.innerHeight * 0.75, rx: 0, ry: 0 };
+// qualquer computador com mouse (inclusive notebook com tela de toque)
+const lockSupported = () => !!canvas.requestPointerLock && (!window.matchMedia || matchMedia('(any-pointer: fine)').matches);
 function enterPlayMode() {
   if (!cfg.lockMouse || !lockSupported()) return;
-  lock.failed = false;
+  Object.assign(lock, { want: true, failed: false, skip: false, tries: 0, gestureT: performance.now() });
+  requestLock();                                   // primeiro prende o mouse, depois pede a tela cheia
   try {
     const el = document.documentElement;
     if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen({ navigationUI: 'hide' }).catch(() => { });
   } catch (e) { }
-  try {
-    const p = canvas.requestPointerLock({ unadjustedMovement: true });
-    if (p && p.catch) p.catch(() => { try { const q = canvas.requestPointerLock(); if (q && q.catch) q.catch(lockFailed); } catch (e) { lockFailed(); } });
-  } catch (e) { try { canvas.requestPointerLock(); } catch (e2) { lockFailed(); } }
 }
-// o navegador não deixou prender o mouse: joga assim mesmo (sem travar o jogo no aviso)
-function lockFailed() { if (lock.on) return; lock.failed = true; updateLockUI(); }
-function releaseMouse() { if (document.pointerLockElement) try { document.exitPointerLock(); } catch (e) { } }
+function requestLock() {
+  if (lock.on || !lock.want) return;
+  try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(lockError); }
+  catch (e) { lockError(e); }
+}
+// o Chrome recusa se o pedido vem logo depois do Esc (espera ~1 s): tenta de novo enquanto o clique ainda vale
+function lockError(e) {
+  if (lock.on) return;
+  if (e && e.message) lock.err = e.message;
+  if (performance.now() - lock.gestureT < 4500 && lock.tries < 3) {
+    if (!lock.retryT) { lock.tries++; lock.retryT = setTimeout(() => { lock.retryT = 0; requestLock(); }, 1150); }
+    return;
+  }
+  lock.failed = true; updateLockUI();
+  console.warn('Pointer Lock recusado:', lock.err || '(sem detalhe)');
+}
+function releaseMouse() { lock.want = false; if (document.pointerLockElement) try { document.exitPointerLock(); } catch (e) { } }
 function toggleFullscreen() {
   try { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => { }); } catch (e) { }
 }
 const settingsOpen = () => { const el = $('cfgScreen'); return !!el && !el.classList.contains('hidden'); };
-// mostra o aviso "clique para jogar" quando o mouse devia estar preso e não está
+// mostra o aviso enquanto o mouse devia estar preso e não está (nunca segue o jogo com o mouse solto sem avisar)
 function needLockPrompt() {
-  return !!S.mode && S.phase !== 'lobby' && S.phase !== 'over' && cfg.lockMouse && lockSupported() && !lock.on && !lock.failed &&
+  return !!S.mode && S.phase !== 'lobby' && S.phase !== 'over' && cfg.lockMouse && lockSupported() && !lock.on && !lock.skip &&
     !settingsOpen() && !(typeof END !== 'undefined' && END.active) && !(typeof RP !== 'undefined' && RP.play);
 }
 function updateLockUI() {
@@ -1517,23 +1529,36 @@ function updateLockUI() {
   const show = needLockPrompt();
   el.classList.toggle('hidden', !show);
   if (show) {
-    const solo = S.mode === 'solo';
-    $('lkTitle').textContent = solo ? '⏸ Pausado' : '🖱️ Clique para jogar';
-    $('lkGo').textContent = solo ? 'Continuar' : 'Jogar';
-    $('lkSub').textContent = solo ? 'Clique para continuar. O mouse fica preso na tela cheia (Esc solta).'
-      : 'O mouse fica preso na tela cheia para não escapar para o outro monitor. Esc solta.';
+    const solo = S.mode === 'solo', waiting = !!lock.retryT;
+    if (lock.failed) {
+      $('lkTitle').textContent = '⚠️ O mouse não ficou preso';
+      $('lkSub').textContent = 'O navegador recusou. Clique em "Tentar de novo" (espere 1 segundo depois de apertar Esc). Se não der, jogue sem prender.';
+      $('lkGo').textContent = 'Tentar de novo';
+    } else {
+      $('lkTitle').textContent = waiting ? '🔒 Prendendo o mouse…' : solo ? '⏸ Pausado' : '🖱️ Clique para jogar';
+      $('lkSub').textContent = 'O mouse fica preso na tela cheia e não passa para o outro monitor. Esc solta.';
+      $('lkGo').textContent = solo ? 'Continuar' : 'Jogar';
+    }
+    $('lkSkip').classList.toggle('hidden', !lock.failed);
   }
   S.paused = settingsOpen() || (S.mode === 'solo' && show);
 }
 document.addEventListener('pointerlockchange', () => {
   const was = lock.on;
   lock.on = document.pointerLockElement === canvas;
-  if (lock.on && !was) { lock.rx = lock.x; lock.ry = lock.y; pointer.hist.length = 0; lock.failed = false; }
+  if (lock.on && !was) {
+    lock.rx = lock.x; lock.ry = lock.y; pointer.hist.length = 0; lock.failed = false; lock.tries = 0;
+    if (lock.retryT) { clearTimeout(lock.retryT); lock.retryT = 0; }
+    if (!lock.toasted && typeof toast === 'function') { lock.toasted = true; toast('🔒 Mouse preso na tela · Esc solta'); }
+  }
   document.body.classList.toggle('locked', lock.on);
   updateLockUI();
 });
-document.addEventListener('pointerlockerror', () => { lock.on = false; lockFailed(); });
-document.addEventListener('fullscreenchange', () => { const b = $('btnFull'); if (b) b.textContent = document.fullscreenElement ? '🗗' : '⛶'; });
+document.addEventListener('pointerlockerror', () => { lock.on = false; lockError(); updateLockUI(); });
+document.addEventListener('fullscreenchange', () => {
+  const b = $('btnFull'); if (b) b.textContent = document.fullscreenElement ? '🗗' : '⛶';
+  if (document.fullscreenElement && lock.want && !lock.on && !lock.retryT) setTimeout(requestLock, 60);   // a tela cheia terminou de abrir
+});
 
 function swipeVel() {
   const h = pointer.hist, now = performance.now() / 1000;
@@ -2670,6 +2695,7 @@ function startGame(mode, side, format = 1) {
   resetMatch(1);
   crowd.mySide = side; if (A.crowdView) A.crowdView.setTeams(side);
   crowd.excite = 0.7; crowdReact('start'); music.duck();
+  lock.skip = false; lock.failed = false; lock.toasted = false;
   setTimeout(updateLockUI, 50);
   if (mode === 'solo') {                        // a CPU escolhe uma raquete diferente a cada partida
     const pool = RACKETS.filter(r => r.id !== myRacket.id);
@@ -3452,12 +3478,14 @@ function initMenusUI() {
   const lk = h('div', { id: 'lockOverlay', class: 'hidden' });
   const lkGo = h('button', { class: 'btn', id: 'lkGo', text: 'Jogar' });
   const lkCfg = h('button', { class: 'btn ghost', text: '⚙️ Configurações' });
+  const lkSkip = h('button', { class: 'btn ghost hidden', id: 'lkSkip', text: 'Jogar sem prender o mouse' });
+  lkSkip.onclick = e => { e.stopPropagation(); lock.skip = true; lock.want = false; updateLockUI(); };
   const lkQuit = h('button', { class: 'btn ghost', text: 'Sair para o menu' });
-  lkGo.onclick = e => { e.stopPropagation(); enterPlayMode(); };
+  lkGo.onclick = e => { e.stopPropagation(); enterPlayMode(); updateLockUI(); };
   lkCfg.onclick = e => { e.stopPropagation(); openSettings(); };
   lkQuit.onclick = e => { e.stopPropagation(); goMenu(); };
-  lk.onclick = () => enterPlayMode();
-  lk.append(h('div', { class: 'lk-card' }, h('div', { class: 'lk-t', id: 'lkTitle' }), h('div', { class: 'lk-s', id: 'lkSub' }), h('div', { class: 'stack' }, lkGo, lkCfg, lkQuit)));
+  lk.onclick = () => { enterPlayMode(); updateLockUI(); };
+  lk.append(h('div', { class: 'lk-card' }, h('div', { class: 'lk-t', id: 'lkTitle' }), h('div', { class: 'lk-s', id: 'lkSub' }), h('div', { class: 'stack' }, lkGo, lkSkip, lkCfg, lkQuit)));
   document.body.append(lk);
   const cs = h('div', { id: 'cfgScreen', class: 'screen hidden' });
   cs.style.zIndex = 42;
