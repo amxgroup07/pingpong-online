@@ -1107,7 +1107,8 @@ const racketById = id => RACKETS.find(r => r.id === id) || RACKETS[0];
 const winCount = () => +store.get('pp_wins', '0') || 0;
 // conta VIP: aberta pelo link secreto (?vip=código). Só o hash do código fica no jogo.
 const VIP_HASH = '58ad5d6d6e4e1bac078a1a8dc4c2c63af41e6747573939db4d1186abe1d7e5ae';
-const isVip = () => store.get('pp_vip', '0') === '1';
+const acct = { sb: null, user: null, profile: null, providers: { google: false }, ready: null };   // conta (preenchida no bloco CONTA)
+const isVip = () => store.get('pp_vip', '0') === '1' || !!(acct.profile && acct.profile.admin);
 const isUnlocked = r => !r.unlock || isVip() || winCount() >= r.unlock;
 const RTX = {};                                     // texturas de raquete em cache
 const rtx = (k, f) => RTX[k] || (RTX[k] = f());
@@ -1361,7 +1362,7 @@ const S = {
   ballVisible: false,
   rally: { hitter: 0, rb: 0, canHit: false, net: false, serve: false, t: 0 },
   serveX: 0, serveBall: null, rtt: 0.08,
-  streak: 0, lastLabel: 'SAQUE',
+  streak: 0, lastLabel: 'SAQUE', ranked: null, oppName: null,
 };
 const me = { x: 0, y: TH + 0.2, z: HL + 0.4, prevDepth: HL + 0.4 };
 const opp = { x: 0, y: TH + 0.2, z: -(HL + 0.4), tx: 0, ty: TH + 0.2, tz: -(HL + 0.4) };
@@ -1667,11 +1668,11 @@ function netErrorText(e) {
   if (t === 'browser-incompatible') return 'Seu navegador não suporta WebRTC. Use Chrome, Edge, Safari ou Firefox atualizados.';
   return 'Erro de conexão: ' + (t || e);
 }
-function createRoom() {
+function createRoom(fixed) {
   if (typeof Peer === 'undefined') { lobbyMsg('Não carregou a biblioteca de rede. Recarregue a página.'); return; }
-  cleanupNet(); isHost = true;
-  const code = genCode();
-  showPanel('wait'); $('codeTxt').textContent = '·····'; lobbyMsg('');
+  cleanupNet(); isHost = true; if (!S.ranked) S.oppName = null;
+  const code = fixed || genCode();
+  if (!fixed) { showPanel('wait'); $('codeTxt').textContent = '·····'; lobbyMsg(''); }
   peer = new Peer(PEER_PREFIX + code, { debug: 1 });
   peer.on('open', () => {
     const link = `${location.origin}${location.pathname}?sala=${code}`;
@@ -1684,42 +1685,50 @@ function createRoom() {
     setupConn(c);
   });
   peer.on('error', e => {
-    if (e.type === 'unavailable-id') { createRoom(); return; }
+    if (e.type === 'unavailable-id' && !fixed) { createRoom(); return; }
+    if (fixed) { rankedFail('Não consegui abrir a partida ranqueada. Tente de novo.'); return; }
     lobbyMsg(netErrorText(e));
   });
   peer.on('disconnected', () => { if (!conn) { try { peer.reconnect(); } catch (e) { } } });
 }
-function joinRoom(code) {
+function joinRoom(code, tries = 0) {
   if (typeof Peer === 'undefined') { lobbyMsg('Não carregou a biblioteca de rede. Recarregue a página.'); return; }
   code = (code || '').trim().toUpperCase();
   if (code.length < 4) { lobbyMsg('Digite o código da sala.'); return; }
-  cleanupNet(); isHost = false;
-  showPanel('joining'); $('joinTxt').textContent = `Entrando na sala ${code}…`; lobbyMsg('');
+  cleanupNet(); isHost = false; if (!S.ranked) S.oppName = null;
+  if (!S.ranked) { showPanel('joining'); $('joinTxt').textContent = `Entrando na sala ${code}…`; lobbyMsg(''); }
   peer = new Peer({ debug: 1 });
   peer.on('open', () => {
     const c = peer.connect(PEER_PREFIX + code, { reliable: true });
     setupConn(c);
     setTimeout(() => { if (!c.open && S.phase === 'lobby' && conn === c) { lobbyMsg('Não consegui conectar. Pode ser a rede (Wi-Fi corporativo/4G bloqueando). Tente outra rede.'); showPanel('menu'); cleanupNet(); } }, 15000);
   });
-  peer.on('error', e => { lobbyMsg(netErrorText(e)); showPanel('menu'); });
+  peer.on('error', e => {
+    // na ranqueada o anfitrião pode demorar um pouco para abrir a sala: tenta de novo
+    if (S.ranked && e.type === 'peer-unavailable' && tries < 7) { setTimeout(() => { if (S.ranked && S.phase === 'lobby') joinRoom(code, tries + 1); }, 1500); return; }
+    if (S.ranked) { rankedFail('Não consegui conectar com o adversário. Tente de novo.'); return; }
+    lobbyMsg(netErrorText(e)); showPanel('menu');
+  });
 }
 function setupConn(c) {
   conn = c;
-  c.on('open', () => { send({ t: 'hello', rk: myRacket.id }); if (isHost) { send({ t: 'start', arena: A.id }); startGame('online', 1); } });
+  c.on('open', () => { send({ t: 'hello', rk: myRacket.id, name: acct.profile ? acct.profile.name : null }); if (isHost) { send({ t: 'start', arena: A.id }); startGame('online', 1); } });
   c.on('data', onMsg);
   c.on('close', () => onDisconnect());
   c.on('error', () => onDisconnect());
 }
 function onDisconnect() {
   if (S.mode !== 'online') return;
+  const rk = S.ranked && !S.ranked.reported && S.phase !== 'over' ? S.ranked : null;
+  if (rk) { rk.reported = true; rankedReport(rk, S.score[String(S.mySide)], S.score[String(-S.mySide)], false); }
   goMenu();
-  lobbyMsg('A conexão com seu amigo caiu.');
+  lobbyMsg(rk ? 'Seu adversário saiu da ranqueada. Se ele não voltar em 3 minutos, a vitória conta para você.' : 'A conexão com seu amigo caiu.');
 }
 function onMsg(m) {
   if (!m || typeof m !== 'object') return;
   switch (m.t) {
     case 'start': if (m.arena && arenaById(m.arena).id !== A.id) buildArena(m.arena); startGame('online', -1); break;
-    case 'hello': if (RACKETS.some(r => r.id === m.rk)) setPaddle('op', racketById(m.rk)); updateHud(); break;
+    case 'hello': if (RACKETS.some(r => r.id === m.rk)) setPaddle('op', racketById(m.rk)); if (typeof m.name === 'string' && !S.ranked) S.oppName = m.name.slice(0, 20); refreshNames(); updateHud(); break;
     case 'pad':
       opp.tx = m.x; opp.ty = m.y; opp.tz = m.z;
       S.serveBall = m.b || null;
@@ -2016,7 +2025,7 @@ function sfxChat(who) {
   tone(who === 'op' ? 740 : 988, 0.08, 0.05, 'sine'); tone(who === 'op' ? 988 : 1318, 0.1, 0.04, 'sine', 0.06);
 }
 // toca um impacto: força 0..1 controla volume e brilho; posição controla estéreo e distância
-function playImpact(kind, pos, strength, tone) {
+function playImpact(kind, pos, strength, snd) {
   if (!actx || !IMP[kind]) return;
   // usa o som gravado quando disponível (raquete/smash -> raquete; mesa/chão -> mesa)
   const real = { paddle: 'paddle', smash: 'paddle', table: 'table', floor: 'table' }[kind];
@@ -2036,7 +2045,7 @@ function playImpact(kind, pos, strength, tone) {
     _camR.setFromMatrixColumn(camera.matrixWorld, 0);
     pan = clamp((dx * _camR.x + dz * _camR.z) / 1.8, -0.85, 0.85);
   }
-  if (tone) { src.playbackRate.value *= tone.rate; cutoff *= tone.cut; vol *= tone.vol; }
+  if (snd) { src.playbackRate.value *= snd.rate; cutoff *= snd.cut; vol *= snd.vol; }
   lp.frequency.value = Math.min(cutoff, 18000);
   const g = actx.createGain(); g.gain.value = vol;
   src.connect(lp).connect(g);
@@ -2062,11 +2071,11 @@ function tone(freq, dur, vol, type = 'triangle', delay = 0) {
   g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
   o.connect(g).connect(master); o.start(t0); o.stop(t0 + dur + 0.02);
 }
-function sfx(k, label, pos, s = 0.5, tone) {
+function sfx(k, label, pos, s = 0.5, snd) {
   if (!actx) return;
   if (k === 'hit') {
     const smash = label === 'SMASH!';
-    playImpact(smash ? 'smash' : 'paddle', pos, s, tone);
+    playImpact(smash ? 'smash' : 'paddle', pos, s, snd);
     if (s > 0.55) whoosh(pos, s);
   }
   else if (k === 'table') playImpact('table', pos, s);
@@ -2146,7 +2155,7 @@ function toast(t) {
 }
 function bumpScore(id) { const el = $(id); el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
 function lobbyMsg(t) { $('lobbyMsg').textContent = t; }
-function showPanel(id) { for (const p of ['menu', 'wait', 'joining']) $(p).classList.toggle('hidden', p !== id); }
+function showPanel(id) { for (const p of ['menu', 'wait', 'joining', 'rankedPanel']) { const el = $(p); if (el) el.classList.toggle('hidden', p !== id); } }
 function updateStreak() {
   const n = S.streak;
   $('streakN').textContent = n;
@@ -2162,7 +2171,7 @@ function drawJumbo() {
   g.fillStyle = '#fff'; g.font = 'italic 900 34px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillText('PING PONG ONLINE', w / 2, 28);
   const mine = S.score[String(S.mySide)], theirs = S.score[String(-S.mySide)];
-  const oppName = S.mode === 'solo' ? 'CPU' : 'AMIGO';
+  const oppName = oppLabel().toUpperCase();
   g.font = '800 40px system-ui'; g.fillStyle = '#c9a8ff'; g.fillText('VOCÊ', w * 0.25, 120);
   g.fillStyle = '#ff8a9c'; g.fillText(oppName, w * 0.75, 120);
   g.font = '700 24px system-ui'; g.fillStyle = 'rgba(255,255,255,.6)';
@@ -2198,7 +2207,7 @@ function updateHud() {
 function showOver() {
   const mine = S.score[String(S.mySide)], theirs = S.score[String(-S.mySide)];
   const won = mine > theirs;
-  $('overTitle').textContent = won ? 'Você venceu! 🏆' : (S.mode === 'solo' ? 'O computador venceu' : 'Seu amigo venceu');
+  $('overTitle').textContent = won ? 'Você venceu! 🏆' : (S.mode === 'solo' ? 'O computador venceu' : `${S.oppName || 'Seu amigo'} venceu`);
   $('overScore').textContent = `${mine} × ${theirs}`;
   if (won) {                                      // vitórias liberam a raquete lendária
     const before = winCount(); store.set('pp_wins', String(before + 1));
@@ -2207,6 +2216,7 @@ function showOver() {
   const lock = RACKETS.find(r => r.unlock && !isUnlocked(r));
   $('overScore').textContent += lock ? ` · vitórias: ${winCount()}/${lock.unlock} para liberar a ${lock.name}` : '';
   clearTimeout(overTimer); overTimer = setTimeout(() => { if (S.phase === 'over') $('over').classList.remove('hidden'); }, 1400);
+  overRanked(mine, theirs);
   fxWin(won);
   updateHud();
 }
@@ -2244,7 +2254,7 @@ function qcPick(i) {
 function addChat(who, text) {
   const feed = $('chatFeed'), d = document.createElement('div');
   d.className = 'cmsg ' + who;
-  const name = who === 'me' ? 'VOCÊ' : who === 'op' ? (S.mode === 'solo' ? 'CPU' : 'AMIGO') : '';
+  const name = who === 'me' ? 'VOCÊ' : who === 'op' ? oppLabel().toUpperCase() : '';
   if (name) { const w = document.createElement('span'); w.className = 'who'; w.textContent = name; d.appendChild(w); }
   d.appendChild(document.createTextNode(text));
   feed.appendChild(d);
@@ -2371,7 +2381,7 @@ function startGame(mode, side) {
   opp.x = opp.tx = 0; opp.z = opp.tz = -side * (HL + 0.4);
   bot.x = 0; bot.z = -side * (HL + 0.35);
   $('nameL').textContent = 'VOCÊ';
-  $('nameR').textContent = mode === 'solo' ? 'CPU' : 'AMIGO';
+  refreshNames();
   $('ping').textContent = mode === 'solo' ? '' : 'conectado';
   $('lobby').classList.add('hidden');
   $('hud').classList.remove('hidden');
@@ -2390,7 +2400,8 @@ function startGame(mode, side) {
 }
 function goMenu() {
   const wasOnline = S.mode === 'online';
-  S.mode = null; S.phase = 'lobby'; S.ballVisible = false;
+  S.mode = null; S.phase = 'lobby'; S.ballVisible = false; S.ranked = null; S.oppName = null;
+  if (typeof stopQueue === 'function') stopQueue(false);
   stopRhythm(); qc.mode = 'closed'; qcRender(); $('chatFeed').innerHTML = '';
   if (wasOnline) cleanupNet();
   $('hud').classList.add('hidden'); $('over').classList.add('hidden');
@@ -2409,7 +2420,7 @@ $('btnCopy').onclick = async () => {
   try { await navigator.clipboard.writeText(v); } catch (e) { $('linkTxt').select(); document.execCommand('copy'); }
   $('btnCopy').textContent = 'Link copiado!'; setTimeout(() => $('btnCopy').textContent = 'Copiar link', 1500);
 };
-$('btnRematch').onclick = () => { if (S.mode === 'online') send({ t: 'rematch' }); resetMatch(-S.firstServer); };
+$('btnRematch').onclick = () => { if (S.ranked) { goMenu(); startRanked(); return; } if (S.mode === 'online') send({ t: 'rematch' }); resetMatch(-S.firstServer); };
 $('btnMenu').onclick = () => goMenu();
 $('quit').onclick = () => goMenu();
 $('btnSound').onclick = () => { ensureAudio(); setMuted(!muted); };
@@ -2528,6 +2539,257 @@ function initLobbyUI() {
   setTimeout(() => { makeThumbs(); renderPick(); }, 60);
 }
 initLobbyUI();
+/* =====================================================================
+   CONTA, ELO E RANQUEADA (Supabase)
+   Login com Steam (função steam-auth) ou Google. O elo só muda no servidor,
+   depois que os dois jogadores mandam o mesmo placar.
+   ===================================================================== */
+const SB_URL = 'https://kvfbpmhovljdpqskuaub.supabase.co';
+const SB_KEY = 'sb_publishable_cH3Oc1jYhKW_h6tYVEoNUQ_YvBy4VOp';
+const DIVS = [[0, 'Bronze', '🥉', '#d08a52'], [1100, 'Prata', '🥈', '#c8d0dc'], [1300, 'Ouro', '🥇', '#ffd34d'], [1500, 'Platina', '💠', '#7fe3ff'], [1700, 'Diamante', '💎', '#a99bff'], [1900, 'Lenda', '👑', '#ff5aa0']];
+function division(rating, games) {
+  if (games < 10) return { name: `Colocação ${games}/10`, icon: '🎯', color: '#bbbbbb' };
+  let d = DIVS[0]; for (const x of DIVS) if (rating >= x[0]) d = x;
+  return { name: d[1], icon: d[2], color: d[3] };
+}
+function oppLabel() { return S.mode === 'solo' ? 'CPU' : (S.oppName || 'Amigo'); }
+function refreshNames() {
+  $('nameL').textContent = acct.profile ? acct.profile.name.toUpperCase().slice(0, 14) : 'VOCÊ';
+  $('nameR').textContent = oppLabel().toUpperCase().slice(0, 14);
+}
+function sbLoad() {
+  if (!acct.ready) acct.ready = import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm')
+    .then(m => (acct.sb = m.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'pkce' } })))
+    .catch(e => { console.warn('Supabase não carregou', e); return null; });
+  return acct.ready;
+}
+async function rpc(fn, args) {
+  const sb = await sbLoad(); if (!sb) throw new Error('sem conexão com o servidor');
+  const { data, error } = await sb.rpc(fn, args || {});
+  if (error) throw new Error(error.message);
+  return data;
+}
+async function refreshProfile() {
+  if (!acct.user) { acct.profile = null; renderAccount(); return; }
+  try { acct.profile = await rpc('my_profile'); } catch (e) { console.warn(e); }
+  renderAccount(); refreshNames(); if (typeof renderPick === 'function') renderPick();
+}
+async function initAccount() {
+  initAccountUI();
+  // quais logins estão ligados no Supabase (o Google precisa ser configurado no painel)
+  fetch(SB_URL + '/auth/v1/settings', { headers: { apikey: SB_KEY } }).then(r => r.json()).then(j => { acct.providers.google = !!(j.external && j.external.google); renderAccount(); }).catch(() => { });
+  const sb = await sbLoad(); if (!sb) { renderAccount('Servidor de contas indisponível agora.'); return; }
+  // volta do login com Steam: o token de uso único vem depois do #
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get('steam_token') || h.get('steam_error')) {
+    history.replaceState(null, '', location.pathname + location.search);
+    if (h.get('steam_token')) {
+      let r = await sb.auth.verifyOtp({ token_hash: h.get('steam_token'), type: 'magiclink' });
+      if (r.error) r = await sb.auth.verifyOtp({ token_hash: h.get('steam_token'), type: 'email' });
+      if (r.error) lobbyMsg('Não deu para entrar com a Steam. Tente de novo.');
+    } else if (h.get('steam_error') !== 'cancelado') lobbyMsg('A Steam não confirmou o login. Tente de novo.');
+  }
+  if (/[?&]code=/.test(location.search)) setTimeout(() => history.replaceState(null, '', location.pathname), 1500);
+  sb.auth.onAuthStateChange((ev, session) => {
+    const u = session ? session.user : null;
+    if ((u && u.id) !== (acct.user && acct.user.id)) { acct.user = u; refreshProfile(); }
+  });
+  const { data } = await sb.auth.getSession();
+  acct.user = data.session ? data.session.user : null;
+  refreshProfile();
+}
+function loginSteam() {
+  location.href = `${SB_URL}/functions/v1/steam-auth?r=${encodeURIComponent(location.origin + location.pathname)}`;
+}
+async function loginGoogle() {
+  const sb = await sbLoad(); if (!sb) return;
+  const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });
+  if (error) lobbyMsg('Login com Google indisponível: ' + error.message);
+}
+async function logout() { const sb = await sbLoad(); if (sb) await sb.auth.signOut(); acct.user = null; acct.profile = null; renderAccount(); refreshNames(); renderPick(); }
+async function editName() {
+  const nm = prompt('Seu nome no jogo (3 a 20 caracteres):', acct.profile ? acct.profile.name : '');
+  if (nm === null) return;
+  try { await rpc('set_display_name', { p_name: nm }); await refreshProfile(); toast('Nome atualizado'); }
+  catch (e) { toast(e.message.includes('3 a 20') ? 'O nome precisa ter de 3 a 20 caracteres' : 'Não deu para mudar o nome'); }
+}
+
+/* ---------- fila ranqueada ---------- */
+const queue = { on: false, timer: 0, t0: 0, tick: 0 };
+async function startRanked() {
+  ensureAudio();
+  if (!acct.user) { lobbyMsg('Entre com Steam ou Google para jogar ranqueada.'); $('acctCard').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (queue.on) return;
+  cleanupNet(); lockedNotice();
+  queue.on = true; queue.t0 = performance.now();
+  showPanel('rankedPanel'); setRankedText('Procurando adversário…', ''); $('rqCpu').classList.add('hidden');
+  queueStep();
+}
+async function queueStep() {
+  if (!queue.on) return;
+  try {
+    const r = await rpc('queue_tick');
+    if (!queue.on) return;
+    if (r && r.status === 'matched') { queueMatched(r); return; }
+    const secs = Math.round((performance.now() - queue.t0) / 1000);
+    setRankedText('Procurando adversário…', `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} · faixa de elo ±${Math.min(600, 100 + secs * 10)}`);
+    if (secs >= 45) $('rqCpu').classList.remove('hidden');
+  } catch (e) { console.warn('fila', e); setRankedText('Sem conexão com o servidor', 'tentando de novo…'); }
+  queue.timer = setTimeout(queueStep, 2000);
+}
+function stopQueue(leave = true) {
+  if (!queue.on) return;
+  queue.on = false; clearTimeout(queue.timer);
+  if (leave) rpc('queue_leave').catch(() => { });
+}
+function setRankedText(a, b) { $('rqTitle').textContent = a; $('rqSub').textContent = b; }
+function queueMatched(r) {
+  queue.on = false; clearTimeout(queue.timer);
+  const opp = r.opponent || {};
+  const dv = division(opp.rating || 1000, opp.games || 0);
+  S.ranked = { matchId: r.match_id, role: r.role, opp, reported: false };
+  S.oppName = opp.name || 'Adversário';
+  setRankedText(`Adversário: ${S.oppName}`, `${dv.icon} ${dv.name} · ${opp.rating} de elo · conectando…`);
+  sfx('win');
+  if (r.role === 'host') createRoom(r.room);
+  else setTimeout(() => { if (S.ranked && S.phase === 'lobby') joinRoom(r.room); }, 1200);
+  setTimeout(() => { if (S.ranked && S.phase === 'lobby' && S.ranked.matchId === r.match_id) rankedFail('O adversário não conectou. Procure de novo.'); }, 25000);
+}
+function rankedFail(msg) {
+  stopQueue(false); cleanupNet(); S.ranked = null; S.oppName = null;
+  showPanel('menu'); lobbyMsg(msg);
+}
+async function rankedReport(rk, mine, theirs, final) {
+  try { return await rpc('report_result', { p_match: rk.matchId, p_my: mine, p_opp: theirs, p_final: final }); }
+  catch (e) { console.warn('relato', e); return null; }
+}
+async function overRanked(mine, theirs) {
+  const el = $('overElo'); el.textContent = ''; el.classList.add('hidden');
+  $('btnRematch').textContent = S.ranked ? 'Jogar outra ranqueada' : 'Revanche';
+  const rk = S.ranked; if (!rk || rk.reported) return;
+  rk.reported = true;
+  el.classList.remove('hidden'); el.textContent = 'Conferindo o placar com o servidor…';
+  let r = await rankedReport(rk, mine, theirs, true);
+  for (let i = 0; i < 16 && r && r.status === 'playing'; i++) {
+    await new Promise(ok => setTimeout(ok, 1500));
+    try { r = await rpc('get_match', { p_match: rk.matchId }); } catch (e) { }
+  }
+  if (!r) { el.textContent = 'Não consegui falar com o servidor. O resultado será conferido depois.'; return; }
+  if (r.status === 'done' || r.status === 'abandoned') {
+    const after = r.before + r.delta, d = r.delta >= 0 ? `+${r.delta}` : `${r.delta}`;
+    await refreshProfile();
+    const p = acct.profile, dv = p ? division(p.rating, p.games) : null;
+    el.innerHTML = `Elo <b>${r.before}</b> → <b>${after}</b> <span style="color:${r.delta >= 0 ? '#2fd16b' : '#ff5a6a'}">(${d})</span>` + (dv ? `<br>${dv.icon} ${dv.name}` : '');
+  } else if (r.status === 'disputed') el.textContent = 'Os placares enviados não bateram: partida anulada, elo não mudou.';
+  else if (r.status === 'void') el.textContent = 'Partida anulada, elo não mudou.';
+  else el.textContent = 'Esperando o adversário confirmar o placar…';
+}
+
+/* ---------- ranking ---------- */
+async function openRanking() {
+  const scr = $('rankScreen'); scr.classList.remove('hidden');
+  const list = $('rankList'); list.innerHTML = '<p class="muted">Carregando…</p>';
+  try {
+    if (!acct.sb) await sbLoad();
+    const { data, error } = await acct.sb.rpc('leaderboard', { p_limit: 50 });
+    if (error) throw error;
+    if (!data || !data.length) { list.innerHTML = '<p class="muted">Ninguém jogou ranqueada ainda. Seja o primeiro!</p>'; return; }
+    list.textContent = '';
+    data.forEach((r, i) => {
+      const dv = division(r.rating, r.games), row = document.createElement('div');
+      row.className = 'rk-row' + (r.me ? ' me' : '');
+      const pos = document.createElement('span'); pos.className = 'rk-pos'; pos.textContent = i < 3 ? ['🥇', '🥈', '🥉'][i] : `${i + 1}º`;
+      const nm = document.createElement('span'); nm.className = 'rk-name'; nm.textContent = r.name;
+      const dvs = document.createElement('span'); dvs.className = 'rk-div'; dvs.textContent = `${dv.icon} ${dv.name}`; dvs.style.color = dv.color;
+      const el = document.createElement('span'); el.className = 'rk-elo'; el.textContent = r.rating;
+      const wl = document.createElement('span'); wl.className = 'rk-wl'; wl.textContent = `${r.wins}V ${r.losses}D`;
+      row.append(pos, nm, dvs, el, wl); list.appendChild(row);
+    });
+  } catch (e) { list.innerHTML = '<p class="muted">Não consegui carregar o ranking agora.</p>'; }
+}
+
+/* ---------- telas ---------- */
+function renderAccount(err) {
+  const card = $('acctCard'); if (!card) return;
+  const p = acct.profile;
+  $('acctOut').classList.toggle('hidden', !!acct.user);
+  $('acctIn').classList.toggle('hidden', !acct.user);
+  $('btnGoogle').classList.toggle('hidden', !acct.providers.google);
+  if (err) $('acctHint').textContent = err;
+  if (acct.user && p) {
+    const dv = division(p.rating, p.games);
+    $('acctName').textContent = p.name;
+    const av = $('acctAv');
+    if (p.avatar) { av.style.backgroundImage = `url("${encodeURI(p.avatar)}")`; av.textContent = ''; } else { av.style.backgroundImage = ''; av.textContent = p.name.slice(0, 1).toUpperCase(); }
+    $('acctDiv').textContent = `${dv.icon} ${dv.name}`; $('acctDiv').style.color = dv.color;
+    $('acctElo').textContent = `${p.rating} de elo · ${p.games ? `#${p.rank} · ` : ''}${p.wins}V ${p.losses}D`;
+    $('acctAdmin').classList.toggle('hidden', !p.admin);
+  } else if (acct.user) { $('acctName').textContent = 'Carregando…'; $('acctDiv').textContent = ''; $('acctElo').textContent = ''; }
+  $('btnRanked').classList.toggle('dim', !acct.user);
+}
+function initAccountUI() {
+  const st = document.createElement('style');
+  st.textContent = `
+  .acct { text-align: left; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 10px 12px; }
+  .acct .lo-t { margin-bottom: 6px; }
+  .acct-hint { font-size: 12px; opacity: .75; margin-bottom: 8px; }
+  .acct-btns { display: flex; gap: 8px; }
+  .acct-btns button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 10px; padding: 10px; font-size: 14px; font-weight: 800; cursor: pointer; color: #fff; }
+  .b-steam { background: linear-gradient(180deg, #2a475e, #171a21); border: 1px solid rgba(255,255,255,.15) !important; }
+  .b-google { background: #fff; color: #222 !important; }
+  .acct-row { display: flex; align-items: center; gap: 10px; }
+  .acct-av { width: 42px; height: 42px; border-radius: 50%; flex: none; background: #3a2340 center/cover; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 18px; border: 2px solid rgba(255,255,255,.2); }
+  .acct-info { flex: 1; min-width: 0; }
+  .acct-name { font-weight: 900; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .acct-name button { background: none; border: 0; color: #fff; opacity: .6; cursor: pointer; font-size: 13px; }
+  .acct-div { font-size: 12px; font-weight: 900; letter-spacing: .04em; }
+  .acct-elo { font-size: 11.5px; opacity: .7; }
+  .acct-out { background: none; border: 0; color: #fff; opacity: .55; cursor: pointer; font-size: 12px; text-decoration: underline; }
+  .acct-admin { font-size: 10px; font-weight: 900; padding: 1px 6px; border-radius: 999px; background: linear-gradient(90deg, #ffd34d, #ff9a3c); color: #1a1000; margin-left: 4px; }
+  button.btn.gold { background: linear-gradient(180deg, #ffd34d, #e8a21c); color: #1a1000; box-shadow: 0 6px 20px rgba(255,190,40,.3); }
+  button.btn.gold.dim { filter: saturate(.4) brightness(.8); }
+  .rank-link { background: none; border: 0; color: #ffd34d; font-weight: 800; cursor: pointer; font-size: 13px; padding: 2px; }
+  #rankedPanel .rq-title { font-size: 18px; font-weight: 900; }
+  #rankScreen .card { max-width: 520px; }
+  .rk-list { margin-top: 14px; max-height: 60vh; overflow-y: auto; text-align: left; }
+  .rk-row { display: grid; grid-template-columns: 44px 1fr auto 56px 64px; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 10px; font-size: 14px; }
+  .rk-row:nth-child(odd) { background: rgba(255,255,255,.04); }
+  .rk-row.me { background: rgba(154,92,255,.25); }
+  .rk-pos { font-weight: 900; text-align: center; } .rk-name { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rk-div { font-size: 12px; font-weight: 800; } .rk-elo { font-weight: 900; text-align: right; } .rk-wl { font-size: 12px; opacity: .7; text-align: right; }
+  #overElo { margin-top: 10px; font-size: 15px; line-height: 1.5; }`;
+  document.head.appendChild(st);
+  const card = document.createElement('div'); card.className = 'acct'; card.id = 'acctCard';
+  card.innerHTML = `
+    <div class="lo-t">CONTA</div>
+    <div id="acctOut">
+      <div class="acct-hint" id="acctHint">Entre para jogar ranqueada, ganhar elo e aparecer no ranking.</div>
+      <div class="acct-btns"><button class="b-steam" id="btnSteam">Entrar com Steam</button><button class="b-google hidden" id="btnGoogle">Entrar com Google</button></div>
+    </div>
+    <div id="acctIn" class="hidden"><div class="acct-row">
+      <div class="acct-av" id="acctAv"></div>
+      <div class="acct-info"><div class="acct-name"><span id="acctName"></span><button id="btnName" title="Mudar nome">✎</button><span class="acct-admin hidden" id="acctAdmin">ADMIN · TUDO LIBERADO</span></div>
+        <div class="acct-div" id="acctDiv"></div><div class="acct-elo" id="acctElo"></div></div>
+      <button class="acct-out" id="btnLogout">Sair</button></div></div>`;
+  $('menu').prepend(card);
+  const rb = document.createElement('button'); rb.className = 'btn gold'; rb.id = 'btnRanked'; rb.textContent = '⚔️ Jogar ranqueada';
+  const rl = document.createElement('button'); rl.className = 'rank-link'; rl.id = 'btnRanking'; rl.textContent = '🏆 Ver ranking';
+  $('btnCreate').before(rb, rl);
+  const panel = document.createElement('div'); panel.id = 'rankedPanel'; panel.className = 'stack hidden';
+  panel.innerHTML = `<p><span class="spinner"></span><span class="rq-title" id="rqTitle">Procurando adversário…</span></p><p class="muted" id="rqSub"></p>
+    <button class="btn ghost hidden" id="rqCpu">Ninguém por aqui: treinar contra a CPU</button><button class="btn ghost" id="rqCancel">Cancelar</button>`;
+  $('joining').after(panel);
+  const scr = document.createElement('div'); scr.id = 'rankScreen'; scr.className = 'screen hidden'; scr.style.zIndex = 40;
+  scr.innerHTML = `<div class="card"><h2>🏆 Ranking</h2><p class="muted">Temporada 1 · divisões pelo elo depois de 10 partidas</p><div class="rk-list" id="rankList"></div><div class="stack"><button class="btn ghost" id="rankClose">Fechar</button></div></div>`;
+  document.body.appendChild(scr);
+  const ov = document.createElement('p'); ov.id = 'overElo'; ov.className = 'hidden'; $('overScore').after(ov);
+  $('btnSteam').onclick = loginSteam; $('btnGoogle').onclick = loginGoogle; $('btnLogout').onclick = logout; $('btnName').onclick = editName;
+  rb.onclick = startRanked; rl.onclick = openRanking; $('rankClose').onclick = () => scr.classList.add('hidden');
+  $('rqCancel').onclick = () => { stopQueue(true); showPanel('menu'); };
+  $('rqCpu').onclick = () => { stopQueue(true); showPanel('menu'); cleanupNet(); startGame('solo', 1); };
+  renderAccount();
+}
+initAccount();
 setMuted(muted);
 
 /* =====================================================================
@@ -2672,4 +2934,4 @@ checkVipLink();
 const roomParam = new URLSearchParams(location.search).get('sala');
 if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
 
-window.__pp = { thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+window.__pp = { awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
