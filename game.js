@@ -30,7 +30,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const $ = id => document.getElementById(id);
 const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { } } };
 // configurações do jogador (salvas no aparelho)
-const CFG_DEF = { sensMove: 1, sensSwing: 1, vMaster: 90, vCrowd: 80, vMusic: 45, vFx: 100, vUi: 70, shake: true, replays: true, showPing: true, lockMouse: true };
+const CFG_DEF = { sensMove: 1, sensSwing: 1, vMaster: 90, vCrowd: 80, vMusic: 45, vFx: 100, vUi: 70, shake: true, replays: true, showPing: true, lockMouse: true, ballGlow: false };
 const cfg = Object.assign({}, CFG_DEF, (() => { try { return JSON.parse(store.get('pp_cfg', '{}')) || {}; } catch (e) { return {}; } })());
 const saveCfg = () => store.set('pp_cfg', JSON.stringify(cfg));
 const volGain = v => v <= 0 ? 0 : Math.pow(clamp(v, 0, 100) / 100, 1.4);
@@ -1021,15 +1021,42 @@ for (const s of [-1, 1]) {
 /* =====================================================================
    BOLA, SOMBRA, BRILHO E RASTRO
    ===================================================================== */
-const ballTex = canvasTex(256, 128, (g, w, h) => {
-  g.fillStyle = '#fffaf2'; g.fillRect(0, 0, w, h);
-  g.fillStyle = '#ff9a3c'; g.fillRect(0, h / 2 - 3, w, 6);
-  g.fillStyle = '#222'; g.font = 'bold 22px system-ui'; g.fillText('★★★', 30, h / 2 - 14);
-});
-const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.024, 28, 18), new THREE.MeshPhysicalMaterial({ map: ballTex, roughness: 0.3, clearcoat: 0.6, emissive: 0xffd0a0, emissiveIntensity: 0.25 }));
+// skins da bolinha (cada jogador vê a que escolheu)
+const BALL_SKINS = [
+  { id: 'branca', name: 'Branca', base: '#fffaf2', stripe: '#ff9a3c', ink: '#222' },
+  { id: 'laranja', name: 'Laranja', base: '#ff8a1f', stripe: '#fff3e0', ink: '#3a1800' },
+  { id: 'preta', name: 'Preta', base: '#1c1c20', stripe: '#ff3d7f', ink: '#ffffff', glow: 0.12 },
+  { id: 'rosa', name: 'Rosa', base: '#ff6fb0', stripe: '#ffffff', ink: '#4a0025' },
+  { id: 'amarela', name: 'Amarela', base: '#ffe14a', stripe: '#ff7a1a', ink: '#3a2a00' },
+  { id: 'verde', name: 'Verde neon', base: '#5dff7a', stripe: '#0b8f3a', ink: '#053a12' },
+  { id: 'azul', name: 'Azul', base: '#3a8bff', stripe: '#ffffff', ink: '#06204a' },
+  { id: 'roxa', name: 'Roxa', base: '#9a5cff', stripe: '#ffd34d', ink: '#ffffff' },
+  { id: 'dourada', name: 'Dourada', base: '#f2c14e', stripe: '#8a5a10', ink: '#3a2500', metal: 0.35 },
+  { id: 'arcoiris', name: 'Arco-íris', rainbow: true, stripe: '#ffffff', ink: '#222' },
+];
+const ballSkinById = id => BALL_SKINS.find(b => b.id === id) || BALL_SKINS[0];
+const ballTexFor = sk => rtxBall[sk.id] || (rtxBall[sk.id] = canvasTex(256, 128, (g, w, h) => {
+  if (sk.rainbow) { const gr = g.createLinearGradient(0, 0, w, 0); ['#ff3d5a', '#ff9a3c', '#ffe14a', '#5dff7a', '#3a8bff', '#9a5cff', '#ff3d5a'].forEach((c, i, a) => gr.addColorStop(i / (a.length - 1), c)); g.fillStyle = gr; }
+  else g.fillStyle = sk.base;
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = sk.stripe; g.fillRect(0, h / 2 - 3, w, 6);
+  g.fillStyle = sk.ink; g.font = 'bold 22px system-ui'; g.fillText('★★★', 30, h / 2 - 14);
+}));
+const rtxBall = {};
+let ballSkin = ballSkinById(store.get('pp_ball', 'branca'));
+const ballMat = new THREE.MeshPhysicalMaterial({ roughness: 0.42, clearcoat: 0.25, clearcoatRoughness: 0.4, envMapIntensity: 0.25 });
+function applyBallSkin(sk) {
+  ballSkin = sk; store.set('pp_ball', sk.id);
+  ballMat.map = ballTexFor(sk); ballMat.metalness = sk.metal || 0;
+  ballMat.emissive.set(sk.rainbow ? '#ffffff' : sk.base); ballMat.emissiveIntensity = sk.glow ?? 0.06;   // só um pouquinho, para não "estourar" na luz
+  ballMat.needsUpdate = true;
+}
+applyBallSkin(ballSkin);
+const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.024, 28, 18), ballMat);
 scene.add(ballMesh);
-const ballGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: 0xffd9b0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.55 }));
-ballGlow.scale.set(0.13, 0.13, 1); scene.add(ballGlow);
+// halo em volta da bola: desligado por padrão (dá para ligar nas configurações), bem mais fraco
+const ballGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex, color: 0xffd9b0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.22 }));
+ballGlow.scale.set(0.08, 0.08, 1); scene.add(ballGlow);
 const blobMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false, alphaMap: dotTex });
 const blob = new THREE.Mesh(new THREE.CircleGeometry(0.032, 24), blobMat);
 blob.rotation.x = -Math.PI / 2; scene.add(blob);
@@ -1253,18 +1280,18 @@ const rimGeo = (() => {
   g.translate(0, 0, -d / 2); return g;
 })();
 const RUBBER_MAT = {
-  smooth: { roughness: 0.55, clearcoat: 0.28, clearcoatRoughness: 0.45 },
-  tacky: { roughness: 0.3, clearcoat: 0.75, clearcoatRoughness: 0.18 },
-  pips: { roughness: 0.85, clearcoat: 0 },
-  hardbat: { roughness: 0.8, clearcoat: 0 },
-  gold: { roughness: 0.32, metalness: 0.45, clearcoat: 0.5, clearcoatRoughness: 0.2 },
+  smooth: { roughness: 0.72, clearcoat: 0.08, clearcoatRoughness: 0.6 },
+  tacky: { roughness: 0.55, clearcoat: 0.22, clearcoatRoughness: 0.45 },
+  pips: { roughness: 0.9, clearcoat: 0 },
+  hardbat: { roughness: 0.85, clearcoat: 0 },
+  gold: { roughness: 0.5, metalness: 0.25, clearcoat: 0.15, clearcoatRoughness: 0.4 },
 };
 // monta a raquete; o lado colorido fica para a câmera de quem segura (sua raquete) ou para você (a do adversário)
 function buildRacket(def, mine, opacity = 1, ptag = '') {
   const L = def.look, root = new THREE.Group(), pivot = new THREE.Group(); root.add(pivot);
   const racket = new THREE.Group(); racket.scale.setScalar(L.scale || PADDLE_SCALE); pivot.add(racket);
   const base = opacity < 1 ? { transparent: true, opacity } : {};
-  const ply = new THREE.MeshStandardMaterial({ map: plyTexFor(L.ply), roughness: L.ply === 'gold' ? 0.3 : 0.6, metalness: L.ply === 'gold' ? 0.7 : 0, ...base });
+  const ply = new THREE.MeshStandardMaterial({ map: plyTexFor(L.ply), roughness: L.ply === 'gold' ? 0.45 : 0.65, metalness: L.ply === 'gold' ? 0.4 : 0, ...base });
   const blade = new THREE.Mesh(bladeGeo, [ply, ply]); blade.castShadow = true; racket.add(blade);
   const colored = mine ? 1 : -1, thin = L.rubber === 'hardbat';
   for (const sideZ of [-1, 1]) {
@@ -1278,16 +1305,18 @@ function buildRacket(def, mine, opacity = 1, ptag = '') {
     rb.castShadow = true; racket.add(rb);
   }
   const hk = L.handle, metal = hk === 'gold';
-  const wood = new THREE.MeshPhysicalMaterial({ map: handleTexFor(hk), roughness: metal ? 0.3 : hk === 'carbon' ? 0.35 : 0.42, metalness: metal ? 0.6 : 0, clearcoat: hk === 'old' ? 0.1 : 0.4, clearcoatRoughness: 0.3, ...base });
+  const wood = new THREE.MeshPhysicalMaterial({ map: handleTexFor(hk), roughness: metal ? 0.45 : hk === 'carbon' ? 0.5 : 0.55, metalness: metal ? 0.35 : 0, clearcoat: hk === 'old' ? 0.05 : 0.12, clearcoatRoughness: 0.5, ...base });
   const handle = new THREE.Mesh(hk === 'old' ? handleGeoST : handleGeo, wood); handle.castShadow = true; racket.add(handle);
-  const bm = new THREE.MeshStandardMaterial({ map: badgeTexFor(L), roughness: 0.3, metalness: 0.5, transparent: true, opacity, alphaTest: 0.05 });
+  const bm = new THREE.MeshStandardMaterial({ map: badgeTexFor(L), roughness: 0.45, metalness: 0.3, transparent: true, opacity, alphaTest: 0.05 });
   for (const sz of [-1, 1]) { const b = new THREE.Mesh(badgeGeo, bm); b.position.set(0, -0.128, sz * 0.0112); if (sz < 0) b.rotation.y = Math.PI; racket.add(b); }
   let fx = null;
   if (def.fx) {                                    // borda brilhante (o bloom deixa com cara de neon)
-    const mat = new THREE.MeshBasicMaterial({ color: def.fx.c1, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    const mat = new THREE.MeshBasicMaterial({ color: def.fx.c1, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false });
     const rim = new THREE.Mesh(rimGeo, mat); racket.add(rim);
     fx = { ...def.fx, mat, rim, scale: L.scale || PADDLE_SCALE, acc: 0 };
   }
+  // o ambiente refletido estava forte demais nas raquetes (elas são criadas depois do ajuste geral da cena)
+  root.traverse(o => { if (o.material && o.material.envMapIntensity !== undefined) o.material.envMapIntensity = 0.12; });
   return { root, pivot, fx };
 }
 function disposeRacket(root) { root.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); }
@@ -1368,18 +1397,18 @@ const _rimV = new THREE.Vector3();
 function updateRacketFx(mesh, t, dt) {
   const fx = mesh.userData.fx; if (!fx || !mesh.visible) return;
   const k = 0.5 + 0.5 * Math.sin(t * 3.1), sp = Math.hypot(mesh.userData.vx || 0, mesh.userData.vz || 0);
-  if (fx.kind === 'flame') { fx.mat.color.setHex(fx.c1).lerp(_fxC.setHex(fx.c2), 0.5 + 0.5 * Math.sin(t * 9) * Math.random()); fx.mat.opacity = 0.7 + Math.random() * 0.3; }
-  else if (fx.kind === 'gold') { fx.mat.color.setHex(fx.c1).lerp(_fxC.setHex(fx.c2), k * 0.6); fx.mat.opacity = 0.75 + k * 0.25; }
-  else if (fx.kind === 'venom') { fx.mat.color.setHex(fx.c2).lerp(_fxC.setHex(fx.c1), k); fx.mat.opacity = 0.55 + k * 0.4; }
-  else { fx.mat.opacity = 0.35 + k * 0.35; }
-  const rate = { gold: 38, flame: 18 + Math.min(sp, 4) * 22, venom: 22, shield: 8 }[fx.kind] || 0;
+  if (fx.kind === 'flame') { fx.mat.color.setHex(fx.c1).lerp(_fxC.setHex(fx.c2), 0.5 + 0.5 * Math.sin(t * 9) * Math.random()); fx.mat.opacity = 0.32 + Math.random() * 0.14; }
+  else if (fx.kind === 'gold') { fx.mat.color.setHex(fx.c1).lerp(_fxC.setHex(fx.c2), k * 0.4); fx.mat.opacity = 0.3 + k * 0.12; }
+  else if (fx.kind === 'venom') { fx.mat.color.setHex(fx.c2).lerp(_fxC.setHex(fx.c1), k); fx.mat.opacity = 0.25 + k * 0.2; }
+  else { fx.mat.opacity = 0.18 + k * 0.15; }
+  const rate = { gold: 22, flame: 10 + Math.min(sp, 4) * 14, venom: 12, shield: 5 }[fx.kind] || 0;
   fx.acc += rate * dt;
   while (fx.acc >= 1) {
     fx.acc -= 1;
     const p = RIM_PTS[(Math.random() * RIM_PTS.length) | 0];
     _rimV.set(p.x * 1.05, p.y * 1.05, 0); fx.rim.localToWorld(_rimV);
-    const o = { gold: [fx.c1, 0.25, { life: 0.7, grav: -0.25, drag: 2, intensity: 2.2 }], flame: [Math.random() < 0.5 ? fx.c1 : fx.c2, 0.35, { life: 0.35, grav: -0.9, drag: 3, intensity: 2.4 }],
-      venom: [fx.c1, 0.12, { life: 0.6, grav: -0.15, drag: 2.5, intensity: 1.8 }], shield: [fx.c1, 0.1, { life: 0.5, grav: 0, drag: 3, intensity: 1.5 }] }[fx.kind];
+    const o = { gold: [fx.c1, 0.25, { life: 0.6, grav: -0.25, drag: 2, intensity: 1.1 }], flame: [Math.random() < 0.5 ? fx.c1 : fx.c2, 0.35, { life: 0.3, grav: -0.9, drag: 3, intensity: 1.2 }],
+      venom: [fx.c1, 0.12, { life: 0.5, grav: -0.15, drag: 2.5, intensity: 0.9 }], shield: [fx.c1, 0.1, { life: 0.45, grav: 0, drag: 3, intensity: 0.8 }] }[fx.kind];
     aura.emit(1, _rimV.x, _rimV.y, _rimV.z, o[0], o[1], o[2]);
   }
 }
@@ -2777,6 +2806,14 @@ function renderPick() {
   $('arEmoji').textContent = a.emoji; $('arName').textContent = a.name; $('arTag').textContent = a.tag;
   $('arDots').innerHTML = ARENAS.map((_, i) => `<i class="${i === pickState.ar ? 'on' : ''}"></i>`).join('');
   document.querySelectorAll('#fmtSeg button').forEach(b => b.classList.toggle('on', +b.dataset.f === pickState.fmt));
+  const bl = $('bsList');
+  if (bl && !bl.children.length) for (const sk of BALL_SKINS) {
+    const b = document.createElement('button'); b.className = 'bs'; b.dataset.b = sk.id; b.title = sk.name; b.setAttribute('aria-label', 'Bolinha ' + sk.name);
+    b.style.background = sk.rainbow ? 'conic-gradient(#ff3d5a,#ff9a3c,#ffe14a,#5dff7a,#3a8bff,#9a5cff,#ff3d5a)' : `radial-gradient(circle at 32% 28%, rgba(255,255,255,.75) 0 5%, ${sk.base} 26%, ${sk.base} 100%)`;
+    bl.appendChild(b);
+  }
+  document.querySelectorAll('#bsList .bs').forEach(b => b.classList.toggle('on', b.dataset.b === ballSkin.id));
+  if ($('bsName')) $('bsName').textContent = ballSkin.name;
 }
 function pickMove(k, d) {
   if (k === 'rk') {
@@ -2816,6 +2853,10 @@ function initLobbyUI() {
   .pk-lock { position: absolute; top: 6px; right: 8px; border-radius: 999px; background: rgba(0,0,0,.75); font-size: 10.5px; font-weight: 800; padding: 3px 8px; color: #ffd34d; }
   .dots { display: flex; gap: 4px; margin-top: 5px; } .dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,.2); } .dots i.on { background: #ff4f8b; }
   .ar-emoji { font-size: 34px; width: 60px; text-align: center; flex: none; }
+  .bskins { display: flex; gap: 7px; flex-wrap: wrap; }
+  .bs { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255,255,255,.18); cursor: pointer; padding: 0; box-shadow: inset 0 -4px 6px rgba(0,0,0,.3); }
+  .bs.on { border-color: #ff4f8b; box-shadow: 0 0 0 3px rgba(255,79,139,.35), inset 0 -4px 6px rgba(0,0,0,.3); transform: scale(1.08); }
+  .lo-t .bs-name { margin-left: 6px; color: #ffd34d; letter-spacing: .06em; opacity: 1; }
   .seg { display: flex; gap: 6px; }
   .seg button { flex: 1; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.05); color: #fff; border-radius: 12px; padding: 8px 4px; font-weight: 900; font-size: 15px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 1px; }
   .seg button small { font-size: 10.5px; font-weight: 700; opacity: .6; }
@@ -2841,6 +2882,8 @@ function initLobbyUI() {
       <div class="pk-card"><div class="ar-emoji" id="arEmoji"></div>
         <div class="pk-info"><div class="pk-name" id="arName"></div><div class="pk-tag" id="arTag"></div><div class="dots" id="arDots"></div></div></div>
       <button class="pk-arrow" data-k="ar" data-d="1" aria-label="Próximo cenário">›</button></div>
+    <div class="lo-t">BOLINHA <span class="bs-name" id="bsName"></span></div>
+    <div class="bskins" id="bsList"></div>
     <div class="lo-t">PARTIDA</div>
     <div class="seg" id="fmtSeg"><button data-f="1">Duelo<small>1 game de 11</small></button><button data-f="3">MD3<small>melhor de 3</small></button><button data-f="5">MD5<small>melhor de 5</small></button></div>
     <div class="pk-note">No online, vale o cenário e o formato de quem cria a sala. Cada um usa a própria raquete. A ranqueada é sempre 1 game.</div>`;
@@ -2848,6 +2891,7 @@ function initLobbyUI() {
   wrap.addEventListener('click', e => {
     const b = e.target.closest('.pk-arrow'); if (b) pickMove(b.dataset.k, +b.dataset.d);
     const f = e.target.closest('#fmtSeg button'); if (f) { pickState.fmt = +f.dataset.f; store.set('pp_fmt', String(pickState.fmt)); renderPick(); }
+    const bs = e.target.closest('#bsList .bs'); if (bs) { applyBallSkin(ballSkinById(bs.dataset.b)); renderPick(); }
   });
   const how = document.querySelector('.howto');
   if (how) {
@@ -3167,6 +3211,7 @@ const CFG_UI = [
   ['🏓 Jogo', [
     ['toggle', 'replays', 'Replays dos pontos bonitos e melhores momentos'],
     ['toggle', 'shake', 'Câmera treme no smash'],
+    ['toggle', 'ballGlow', 'Brilho (halo) em volta da bola'],
     ['toggle', 'showPing', 'Mostrar o ping no online'],
     ['toggle', 'lockMouse', 'Tela cheia com o mouse preso na partida (bom para dois monitores)'],
     ['quality'],
@@ -3671,8 +3716,8 @@ function replayStep(dt) {
 function replayPose() {
   const p = RP.play; if (!p) return;
   const c = p.clip, f = frameAt(c, p.t);
-  ballMesh.visible = blob.visible = ballGlow.visible = !!f[4];
-  ballMesh.position.set(f[1], f[2], f[3]); ballGlow.position.copy(ballMesh.position); ballGlow.scale.set(0.16, 0.16, 1);
+  ballMesh.visible = blob.visible = !!f[4]; ballGlow.visible = !!f[4] && cfg.ballGlow;
+  ballMesh.position.set(f[1], f[2], f[3]); ballGlow.position.copy(ballMesh.position); ballGlow.scale.set(0.09, 0.09, 1);
   trailColor.setHex(f[15]); ballGlow.material.color.copy(trailColor).lerp(_fxC.setHex(0xffffff), 0.55);
   const overTable = Math.abs(f[1]) < HW && Math.abs(f[3]) < HL && f[2] > TH - 0.01, sy = overTable ? TH + 0.002 : 0.005;
   blob.position.set(f[1], sy, f[3]); const s = 1 + Math.max(0, f[2] - sy) * 1.4; blob.scale.set(s, s, s);
@@ -3875,7 +3920,7 @@ function render(dt, now) {
   renderWorld(dt, t);
 }
 function renderLive(dt) {
-  ballMesh.visible = blob.visible = ballGlow.visible = S.ballVisible;
+  ballMesh.visible = blob.visible = S.ballVisible; ballGlow.visible = S.ballVisible && cfg.ballGlow;
   if (S.ballVisible) {
     const p = S.ball.p, w = S.ball.w;
     ballMesh.position.set(p[0], p[1], p[2]);
@@ -3883,7 +3928,7 @@ function renderLive(dt) {
     if (wl > 0.1 && S.phase !== 'serve') { _ax.set(w[0] / wl, w[1] / wl, w[2] / wl); _q.setFromAxisAngle(_ax, wl * dt * TIME_SCALE * 0.3); ballMesh.quaternion.premultiply(_q); }
     ballGlow.position.copy(ballMesh.position);
     const sp = Math.hypot(S.ball.v[0], S.ball.v[1], S.ball.v[2]);
-    const gs = 0.1 + Math.min(sp, 14) * 0.006;
+    const gs = 0.06 + Math.min(sp, 14) * 0.003;
     ballGlow.scale.set(gs, gs, 1);
     ballGlow.material.color.copy(trailColor).lerp(new THREE.Color(0xffffff), 0.55);
     const overTable = Math.abs(p[0]) < HW && Math.abs(p[2]) < HL && p[1] > TH - 0.01;
@@ -4006,4 +4051,4 @@ checkVipLink();
 const roomParam = new URLSearchParams(location.search).get('sala');
 if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
 
-window.__pp = { lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+window.__pp = { applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };

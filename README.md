@@ -77,6 +77,11 @@ de quem cria a sala. Todos têm fogos no fim da partida; a Final tem pirotecnia 
 jsDelivr com reserva no GitHub), com volume pela força do impacto, estéreo pela posição da bola e um
 pouco de eco de ginásio. Se os arquivos não carregarem, o jogo usa sons sintetizados no navegador.
 
+## Bolinha
+No menu dá para escolher a cor da bolinha: branca, laranja, preta, rosa, amarela, verde neon, azul, roxa,
+dourada ou arco-íris. É visual e pessoal: cada jogador vê a bolinha que escolheu. O halo de luz em volta
+da bola vem desligado (liga em ⚙️ → "Brilho (halo) em volta da bola").
+
 ## Chat rápido (estilo Rocket League)
 Durante o jogo, aperte **1 a 4** para escolher a categoria e de novo **1 a 4** para a frase
 (no celular, use o botão 💬). Categorias: Elogios, Reações, Provocações e Geral.
