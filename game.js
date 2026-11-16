@@ -30,7 +30,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const $ = id => document.getElementById(id);
 const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { } } };
 // configurações do jogador (salvas no aparelho)
-const CFG_DEF = { sensMove: 1, sensSwing: 1, vMaster: 90, vCrowd: 80, vMusic: 45, vFx: 100, vUi: 70, shake: true, replays: true, showPing: true, lockMouse: true, ballGlow: false, musicInGame: false, asmr: true };
+const CFG_DEF = { sensMove: 1, sensSwing: 1, vMaster: 90, vCrowd: 80, vMusic: 45, vFx: 100, vUi: 70, shake: true, replays: true, showPing: true, lockMouse: true, ballGlow: false, musicInGame: false, asmr: true, assist: false };
 const cfg = Object.assign({}, CFG_DEF, (() => { try { return JSON.parse(store.get('pp_cfg', '{}')) || {}; } catch (e) { return {}; } })());
 const saveCfg = () => store.set('pp_cfg', JSON.stringify(cfg));
 const volGain = v => v <= 0 ? 0 : Math.pow(clamp(v, 0, 100) / 100, 1.4);
@@ -153,8 +153,11 @@ function makeShot(side, B, power, tx, sideSpin, serve, o = {}) {
     sh += pace * 0.5;
     if (!chop) depth += pace * 0.04;
   }
-  // raquete com pouco controle espalha um pouco a bola
-  if (!serve && ctrl < 4) { const e = 4 - ctrl; depth += (Math.random() - 0.5) * 0.07 * e; tx += (Math.random() - 0.5) * 0.08 * e; }
+  // raquete com pouco controle espalha um pouco a bola; batida PERFEITA não espalha, na ponta espalha mais
+  const q = o.q || 0;
+  if (!serve && ctrl < 4 && q <= 0) { const e = 4 - ctrl; depth += (Math.random() - 0.5) * 0.07 * e; tx += (Math.random() - 0.5) * 0.08 * e; }
+  if (!serve && q < 0) { depth += (Math.random() - 0.5) * 0.18; tx += (Math.random() - 0.5) * 0.3; sh *= 0.9; }
+  if (q > 0) sh *= 1.06;
   // o topspin "segura" a bola: sem exagero de força ela cai antes do fim da mesa
   depth = clamp(depth, 0.15, HL - 0.07) + outExtra;
   // mira lateral com limite suave: só sai pela lateral num movimento muito exagerado
@@ -198,7 +201,7 @@ function makeShot(side, B, power, tx, sideSpin, serve, o = {}) {
       const l = simFlight(B, v, w);
       if (l && l.netY !== null && l.netY < NET_TOP - 0.02) break;
     }
-  } else if (Math.random() < (serve ? 0.06 : 0.03 + 0.04 * clamp(pw - 0.8, 0, 1)) * (1.3 - 0.1 * ctrl)) {
+  } else if (Math.random() < (serve ? 0.06 : 0.03 + 0.04 * clamp(pw - 0.8, 0, 1)) * (1.3 - 0.1 * ctrl) * (q > 0 ? 0 : q < 0 ? 2 : 1)) {
     // de vez em quando a bola passa baixinho e raspa na fita da rede (como no jogo real)
     const base = v[1];
     for (let k = 0.995; k > 0.6; k -= 0.005) {
@@ -1316,7 +1319,13 @@ function buildRacket(def, mine, opacity = 1, ptag = '') {
     fx = { ...def.fx, mat, rim, scale: L.scale || PADDLE_SCALE, acc: 0 };
   }
   // o ambiente refletido estava forte demais nas raquetes (elas são criadas depois do ajuste geral da cena)
-  root.traverse(o => { if (o.material && o.material.envMapIntensity !== undefined) o.material.envMapIntensity = 0.12; });
+  root.traverse(o => {
+    const m = o.material; if (!m || m === (fx && fx.mat)) return;
+    if (m.envMapIntensity !== undefined) m.envMapIntensity = 0.08;
+    // borracha de verdade quase não espelha: sem isso o holofote de cima "estoura" a face virada para a câmera
+    if (m.isMeshPhysicalMaterial) { m.specularIntensity = 0.18; m.clearcoat *= 0.4; m.roughness = Math.max(m.roughness, 0.7); }
+    else if (m.isMeshStandardMaterial && !m.metalness) m.roughness = Math.max(m.roughness, 0.75);
+  });
   return { root, pivot, fx };
 }
 function disposeRacket(root) { root.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); }
@@ -1396,11 +1405,13 @@ const fwSolid = makeParticles(900, 0.11, false);       // fogos com cor sólida:
 const _rimV = new THREE.Vector3();
 function updateRacketFx(mesh, t, dt) {
   const fx = mesh.userData.fx; if (!fx || !mesh.visible) return;
+  const near = mesh === myPaddleMesh ? 0.55 : 1;      // a minha fica perto da câmera e parece maior
   const k = 0.5 + 0.5 * Math.sin(t * 3.1), sp = Math.hypot(mesh.userData.vx || 0, mesh.userData.vz || 0);
   if (fx.kind === 'flame') { fx.mat.color.setHex(fx.c1).lerp(_fxC.setHex(fx.c2), 0.5 + 0.5 * Math.sin(t * 9) * Math.random()); fx.mat.opacity = 0.32 + Math.random() * 0.14; }
   else if (fx.kind === 'gold') { fx.mat.color.setHex(fx.c1).lerp(_fxC.setHex(fx.c2), k * 0.4); fx.mat.opacity = 0.3 + k * 0.12; }
   else if (fx.kind === 'venom') { fx.mat.color.setHex(fx.c2).lerp(_fxC.setHex(fx.c1), k); fx.mat.opacity = 0.25 + k * 0.2; }
   else { fx.mat.opacity = 0.18 + k * 0.15; }
+  fx.mat.opacity *= near;
   const rate = { gold: 22, flame: 10 + Math.min(sp, 4) * 14, venom: 12, shield: 5 }[fx.kind] || 0;
   fx.acc += rate * dt;
   while (fx.acc >= 1) {
@@ -1637,13 +1648,17 @@ function playerHit(serve) {
   const chop = !serve && sv.up < -0.55;                       // puxou a raquete para trás = corte
   const power = chop ? clamp(-sv.up / POWER_DIV * 0.7, 0.1, 0.8) : Math.max(0, sv.up) / POWER_DIV;
   const B = [...S.ball.p];
+  const hq = hitQuality(sv, serve);
   const tx = B[0] * 0.3 + sd * sv.x * 0.24;                   // a bola sai para o lado do gesto
   // raquete raspando de lado gira a bola no eixo vertical (sidespin) -> curva no ar (Magnus)
   // e uma "quebra" no quique: bater da esquerda pra direita faz a bola fazer a curva
   const sideSpin = clamp(sv.x * 55 * (serve ? 1.2 : 1), -260, 260);
-  const shot = makeShot(sd, B, power, tx, sideSpin, serve, serve ? { rk: myRacket } : { inW: [...S.ball.w], inSpeed: Math.hypot(...S.ball.v), chop, rk: myRacket });
+  const shot = makeShot(sd, B, power, tx, sideSpin, serve, serve ? { rk: myRacket } : { inW: [...S.ball.w], inSpeed: Math.hypot(...S.ball.v), chop, rk: myRacket, q: hq.q });
+  shot.q = hq.q; S.lastQ = hq.tag;
   applyHit(sd, B, shot, serve);
-  if (S.mode === 'online') send({ t: 'hit', side: sd, p: B, v: shot.v, w: shot.w, serve, label: shot.label });
+  showQuality(hq.tag);
+  if (hq.q > 0) progEvent('perfect');
+  if (S.mode === 'online') send({ t: 'hit', side: sd, p: B, v: shot.v, w: shot.w, serve, label: shot.label, q: hq.tag });
 }
 
 function applyHit(side, B, shot, serve) {
@@ -1658,7 +1673,10 @@ function applyHit(side, B, shot, serve) {
   sfx('hit', shot.label, B, clamp(Math.hypot(...shot.v) / 11, 0.12, 1), (side === S.mySide ? myRacket : oppRacket).sound);
   recEvent('hit', B, clamp(Math.hypot(...shot.v) / 11, 0.12, 1), { label: shot.label, side, speed: Math.hypot(...shot.v) });
   fxHit(side, B, shot.label);
-  if (S.mode === 'solo' && side !== sideOfBot()) botPredict();
+  feelHit(side, shot.label, shot.q || 0);
+  predictLanding();
+  if (side === S.mySide && !serve) { if (shot.label === 'SMASH!') progEvent('smash'); else if (shot.label === 'CORTE') progEvent('chop'); }
+  if (S.mode === 'solo' && side !== sideOfBot() && !S.tutorial) botPredict();
 }
 
 function evalEvent(e) {
@@ -1685,6 +1703,12 @@ function evalEvent(e) {
 
 function awardPoint(winner, reason) {
   let hl = false;
+  if (S.tutorial) { tutPoint(winner, reason); onPoint(winner, reason, false); return; }
+  if (winner === S.mySide) {                           // missões
+    if (S.streak >= 10) progEvent('rally10');
+    if (S.rally.hitter === winner && S.lastLabel === 'SIDE-SPIN') progEvent('curvept');
+    if (S.streak === 0 && reason === 'miss' && winner === S.server) progEvent('ace');
+  }
   if (winner) {
     const info = hlInfo(winner, reason);
     S.score[winner]++;
@@ -1750,12 +1774,13 @@ function nextPoint() {
     startGameBreak(w); return;
   }
   S.server = computeServer();
+  if (S.tutorial) S.server = TUT[S.tutorial.i].serve ? S.mySide : -S.mySide;
   S.phase = 'serve'; S.phaseT = 0; S.serveBall = null;
   recStart();
   S.serveX = S.server === S.mySide ? clamp(me.x, -0.6, 0.6) : (Math.random() - 0.5) * 0.8;
   bot.served = false; bot.serveAt = 0.9 + Math.random() * 0.8;
   trailPts.length = 0;
-  if (S.server === S.mySide) showMsg('Seu saque', 'raquete atrás da bola + movimento para cima');
+  if (S.server === S.mySide && !S.tutorial) showMsg('Seu saque', 'raquete atrás da bola + movimento para cima');
   if (matchPointFor()) startRhythm();
   updateHud();
 }
@@ -1796,7 +1821,7 @@ function resetMatch(firstServer) {
    COMPUTADOR (modo treino)
    ===================================================================== */
 function botPredict() {
-  const sd = sideOfBot();
+  const sd = sideOfBot(), L = botLv();
   const b = { p: [...S.ball.p], v: [...S.ball.v], w: [...S.ball.w] };
   let bounced = false, x = 0, found = false;
   for (let i = 0; i < 900; i++) {
@@ -1805,28 +1830,34 @@ function botPredict() {
     if (bounced && b.p[2] * sd >= HL + 0.3) { x = b.p[0]; found = true; break; }
     if (b.p[1] < TH - 0.35) break;
   }
-  bot.predX = found ? x + (Math.random() - 0.5) * 0.1 : bot.x;
-  bot.react = 0.12 + Math.random() * 0.1;
+  bot.predX = found ? x + (Math.random() - 0.5) * L.predErr : bot.x;
+  bot.react = L.react[0] + Math.random() * L.react[1];
 }
 
 function botHit(serve) {
-  const sd = sideOfBot();
-  let power = serve ? 0.3 + Math.random() * 0.6 : 0.4 + Math.random() * 0.55;
-  let tx = (Math.random() * 2 - 1) * (serve ? 0.45 : 0.58);
-  const r = Math.random();
-  if (!serve && r < 0.05) power = 2.25 + Math.random() * 0.3;          // erro: bateu forte demais
-  else if (!serve && r < 0.09) tx = Math.sign(tx || 1) * (1.25 + Math.random() * 0.2);   // erro: abriu demais
+  const sd = sideOfBot(), L = botLv(), Y = BOT_STYLES[botStyle] || BOT_STYLES.equilibrado;
+  let power = serve ? 0.3 + Math.random() * 0.6 : (L.pw[0] + Math.random() * L.pw[1]) * Y.pw;
+  let tx = (Math.random() * 2 - 1) * (serve ? 0.45 : L.aim);
+  const r = Math.random(), err = L.err * Y.err;
+  if (!serve && r < err) power = 2.25 + Math.random() * 0.3;          // erro: bateu forte demais
+  else if (!serve && r < err + L.wide * Y.err) tx = Math.sign(tx || 1) * (1.25 + Math.random() * 0.2);   // erro: abriu demais
   const B = [...S.ball.p];
-  const chop = !serve && Math.random() < 0.12;
+  if (!serve && B[1] > TH + 0.33 && Math.random() < L.smash + Y.smash) power = 1.0 + Math.random() * 0.25;   // bola alta: smash
+  const chop = !serve && power < 0.95 && Math.random() < L.chop * Y.chop;
   if (chop) power = 0.3 + Math.random() * 0.4;
-  const shot = makeShot(sd, B, power, tx, (Math.random() * 2 - 1) * (Math.random() < 0.3 ? 220 : 60), serve, serve ? { rk: oppRacket } : { inW: [...S.ball.w], inSpeed: Math.hypot(...S.ball.v), chop, rk: oppRacket });
+  const shot = makeShot(sd, B, power, tx, (Math.random() * 2 - 1) * (Math.random() < L.side * Y.side ? 220 : 60), serve, serve ? { rk: oppRacket } : { inW: [...S.ball.w], inSpeed: Math.hypot(...S.ball.v), chop, rk: oppRacket });
   applyHit(sd, B, shot, serve);
   bot.lunge = 0.22;
 }
 
 function botStep(dt) {
   const sd = sideOfBot();
-  let tx = bot.x * 0.98, depth = HL + 0.35, maxV = 2.3;
+  let tx = bot.x * 0.98, depth = HL + 0.35, maxV = botLv().maxV;
+  if (S.tutorial) {                                   // tutorial: a CPU só alimenta bolas
+    if (S.phase === 'serve' && S.server === sd && TUT[S.tutorial.i].k !== 'move' && S.phaseT > 0.9 && !bot.served) { bot.served = true; tutFeed(); }
+    bot.x += clamp(me.x * 0.5 - bot.x, -2 * dt, 2 * dt); bot.lunge = Math.max(0, bot.lunge - dt); bot.z = sd * (HL + 0.35 - bot.lunge * 1.2); autoY(bot, sd, dt);
+    return;
+  }
   if (S.phase === 'serve' && S.server === sd) {
     tx = S.serveX; depth = HL + 0.3; maxV = 4;
     if (S.phaseT > bot.serveAt && !bot.served && Math.abs(bot.x - S.serveX) < 0.05) { bot.served = true; S.ball.p = serveBallPos(); botHit(true); }
@@ -1979,7 +2010,8 @@ function onMsg(m) {
     case 'hit': {
       if (S.phase === 'lobby' || S.phase === 'over') return;
       if (RP.play && S.phase === 'replay') endReplay(true);     // o adversário já sacou: fecha o replay
-      applyHit(m.side, m.p, { v: m.v, w: m.w, label: m.label }, m.serve);
+      applyHit(m.side, m.p, { v: m.v, w: m.w, label: m.label, q: m.q === 'PERFEITO!' ? 1 : 0 }, m.serve);
+      if (m.q === 'PERFEITO!') showQuality(m.q, false);
       const ff = Math.min(S.rtt / 2, 0.2) * TIME_SCALE;   // compensa atraso da rede
       for (let t = 0; t < ff; t += DT) {
         const ev = []; stepBall(S.ball, DT, ev, true);
@@ -2398,9 +2430,9 @@ function asmrTick(dt) {
   if (live && cfg.asmr) {
     const sv = swipeVel(), sp = Math.hypot(sv.x, sv.up);
     asmr.swingT -= dt;
-    if (sp > 7 && asmr.lastSp <= 7 && asmr.swingT <= 0) {
+    if (sp > 1.3 && asmr.lastSp <= 1.3 && asmr.swingT <= 0) {     // gesto rápido (mesma escala da força do golpe)
       asmr.swingT = 0.22;
-      swingAir(clamp(me.x * 0.5, -0.6, 0.6), clamp((sp - 7) / 22, 0.05, 1), 0.8);
+      swingAir(clamp(me.x * 0.5, -0.6, 0.6), clamp((sp - 1.3) / 3.5, 0.05, 1), 0.8);
     }
     asmr.lastSp = sp;
     // tênis no chão (só nos cenários fechados)
@@ -2546,7 +2578,7 @@ function fxHit(side, B, label) {
   const c = TRAIL_COLORS[label] || 0x22ff88;
   const smash = label === 'SMASH!';
   sparks.emit(smash ? 42 : 18, B[0], B[1], B[2], c, smash ? 3.2 : 1.6, { life: smash ? 0.5 : 0.35, intensity: 2.5, grav: 2, drag: 3 });
-  hitLight.position.set(B[0], B[1] + 0.1, B[2]); hitLight.color.setHex(c); hitFlash = smash ? 1 : 0.55;
+  hitLight.position.set(B[0] * 0.8, B[1] + 0.35, B[2] * 0.72); hitLight.color.setHex(c); hitFlash = smash ? 1 : 0.5;   // clarão um pouco à frente: ilumina a mesa, não estoura a raquete
   const near = side === S.mySide;
   if (smash) { cam.shake = near ? 0.6 : 1; cam.fovKick = near ? -2 : 3; crowd.excite = Math.min(1, crowd.excite + 0.35); crowdReact('wow'); }
   else if (near) cam.shake = Math.max(cam.shake, 0.15);
@@ -2674,6 +2706,7 @@ function showOver() {
   const lock = RACKETS.find(r => isListed(r) && !isUnlocked(r) && rcfg(r).unlock_wins);
   $('overScore').textContent += lock ? ` · vitórias: ${totalWins()}/${rcfg(lock).unlock_wins} para liberar a ${lock.name}` : '';
   overRanked(mine, theirs);
+  overXp(won);
   endSequence(won);                                 // comemoração, fogos e melhores momentos; depois o resumo
   updateHud();
 }
@@ -2848,6 +2881,12 @@ function startGame(mode, side, format = 1) {
   crowd.mySide = side; if (A.crowdView) A.crowdView.setTeams(side);
   crowd.excite = 0.7; crowdReact('start'); music.duck();
   lock.skip = false; lock.failed = false; lock.toasted = false;
+  S.tutorial = null; document.body.classList.remove('tutorial'); renderTutorial(); landMark.visible = false;
+  matchStats.perfect = 0; matchStats.xpMissions = 0;
+  if (mode === 'solo') {
+    botStyle = pick(Object.keys(BOT_STYLES));
+    setTimeout(() => { if (S.mode === 'solo' && !S.tutorial) addChat('sys', `🤖 CPU ${botLv().name} · estilo ${BOT_STYLES[botStyle].name}`); }, 1300);
+  }
   setTimeout(updateLockUI, 50);
   if (mode === 'solo') {                        // a CPU escolhe uma raquete diferente a cada partida
     const pool = RACKETS.filter(r => r.id !== myRacket.id);
@@ -2862,6 +2901,8 @@ function goMenu() {
   const wasOnline = S.mode === 'online';
   S.mode = null; S.phase = 'lobby'; S.ballVisible = false; S.ranked = null; S.oppName = null;
   stopEnd(); endReplay(false); RP.pending = false; RP.rec = null; S.paused = false; music.duck();
+  S.tutorial = null; document.body.classList.remove('tutorial'); renderTutorial(); landMark.visible = false; renderProgress();
+  if ($('btnTut') && store.get('pp_tut', '0') === '1') { $('btnTut').classList.remove('new'); $('btnTut').textContent = '🎓 Tutorial (1 min)'; }
   releaseMouse(); updateLockUI();
   if (typeof stopQueue === 'function') stopQueue(false);
   stopRhythm(); qc.mode = 'closed'; qcRender(); $('chatFeed').innerHTML = '';
@@ -2890,7 +2931,7 @@ $('btnQuality').onclick = () => { perf.checked = true; applyQuality(Q.level === 
 /* =====================================================================
    MENU: escolha da raquete e do cenário
    ===================================================================== */
-const pickState = { rk: Math.max(0, RACKETS.indexOf(myRacket)), ar: Math.max(0, ARENAS.findIndex(a => a.id === store.get('pp_arena', 'neon'))), fmt: [1, 3, 5].includes(+store.get('pp_fmt', '1')) ? +store.get('pp_fmt', '1') : 1 };
+const pickState = { rk: Math.max(0, RACKETS.indexOf(myRacket)), ar: Math.max(0, ARENAS.findIndex(a => a.id === store.get('pp_arena', 'neon'))), fmt: [1, 3, 5].includes(+store.get('pp_fmt', '1')) ? +store.get('pp_fmt', '1') : 1, diff: store.get('pp_diff', 'medio') };
 const thumbs = {};
 function makeThumbs() {                           // miniaturas 3D das raquetes (renderizadas uma vez)
   try {
@@ -2935,7 +2976,12 @@ function renderPick() {
     b.style.background = sk.rainbow ? 'conic-gradient(#ff3d5a,#ff9a3c,#ffe14a,#5dff7a,#3a8bff,#9a5cff,#ff3d5a)' : `radial-gradient(circle at 32% 28%, rgba(255,255,255,.75) 0 5%, ${sk.base} 26%, ${sk.base} 100%)`;
     bl.appendChild(b);
   }
-  document.querySelectorAll('#bsList .bs').forEach(b => b.classList.toggle('on', b.dataset.b === ballSkin.id));
+  document.querySelectorAll('#bsList .bs').forEach(b => {
+    const sk = ballSkinById(b.dataset.b), lk = !!window.__feelReady && skinLocked(sk);
+    b.classList.toggle('on', b.dataset.b === ballSkin.id); b.classList.toggle('lock', lk);
+    b.title = lk ? `${sk.name} · libera no nível ${SKIN_LV[sk.id]}` : sk.name;
+  });
+  document.querySelectorAll('#diffSeg button').forEach(b => b.classList.toggle('on', b.dataset.d === pickState.diff));
   if ($('bsName')) $('bsName').textContent = ballSkin.name;
 }
 function pickMove(k, d) {
@@ -3014,7 +3060,8 @@ function initLobbyUI() {
   wrap.addEventListener('click', e => {
     const b = e.target.closest('.pk-arrow'); if (b) pickMove(b.dataset.k, +b.dataset.d);
     const f = e.target.closest('#fmtSeg button'); if (f) { pickState.fmt = +f.dataset.f; store.set('pp_fmt', String(pickState.fmt)); renderPick(); }
-    const bs = e.target.closest('#bsList .bs'); if (bs) { applyBallSkin(ballSkinById(bs.dataset.b)); renderPick(); }
+    const bs = e.target.closest('#bsList .bs');
+    if (bs) { const sk = ballSkinById(bs.dataset.b); if (skinLocked(sk)) toast(`🔒 A bolinha ${sk.name} libera no nível ${SKIN_LV[sk.id]}`); else { applyBallSkin(sk); renderPick(); } }
   });
   const how = document.querySelector('.howto');
   if (how) {
@@ -3060,6 +3107,11 @@ async function rpc(fn, args) {
 async function refreshProfile() {
   if (!acct.user) { acct.profile = null; renderAccount(); return; }
   try { acct.profile = await rpc('my_profile'); } catch (e) { console.warn(e); }
+  if (acct.profile && typeof prog !== 'undefined') {
+    if ((acct.profile.xp | 0) > prog.xp) { prog.xp = acct.profile.xp | 0; saveProg(); }
+    else if (prog.xp > (acct.profile.xp | 0)) rpc('sync_xp', { p_xp: prog.xp }).catch(() => { });
+    renderProgress();
+  }
   renderAccount(); refreshNames(); afterProfile();
 }
 async function initAccount() {
@@ -3335,6 +3387,7 @@ const CFG_UI = [
     ['toggle', 'replays', 'Replays dos pontos bonitos e melhores momentos'],
     ['toggle', 'shake', 'Câmera treme no smash'],
     ['toggle', 'ballGlow', 'Brilho (halo) em volta da bola'],
+    ['toggle', 'assist', 'Ajuda: mostrar onde a bola vai quicar do seu lado'],
     ['toggle', 'musicInGame', 'Música durante a partida (desligada = só bola, torcida e ambiente)'],
     ['toggle', 'asmr', 'Sons de detalhe: vento da raquete, ar da bola e tênis no chão'],
     ['toggle', 'showPing', 'Mostrar o ping no online'],
@@ -4022,6 +4075,302 @@ function initReplayUI() {
 initReplayUI();
 
 /* =====================================================================
+   SENSAÇÃO DO GOLPE, CPU POR NÍVEL, AJUDA DE QUIQUE, PROGRESSO E TUTORIAL
+   ===================================================================== */
+
+/* ---------- acerto de tempo: PERFEITO / CEDO / NA PONTA ---------- */
+// velocidade do gesto para cima agora e o pico nos últimos 0,3 s (janelas de 40 ms)
+function swingPeakUp() {
+  const h = pointer.hist, now = performance.now() / 1000, k = cfg.sensSwing || 1;
+  let peak = 0, cur = null;
+  for (let i = h.length - 1; i > 0; i--) {
+    const a = h[i]; if (now - a.t > 0.3) break;
+    let j = i - 1; while (j > 0 && a.t - h[j].t < 0.04) j--;
+    const dt = a.t - h[j].t; if (dt <= 0.008) continue;
+    const v = -(a.hy - h[j].hy) / dt * k;
+    if (cur === null) cur = v;
+    peak = Math.max(peak, v);
+  }
+  return { peak, cur: cur || 0 };
+}
+function hitQuality(sv, serve) {
+  if (serve) return { q: 0, tag: '' };
+  const off = Math.abs(S.ball.p[0] - me.x);
+  if (off > 0.2) return { q: -1, tag: 'NA PONTA' };              // pegou na ponta da raquete: sai torta
+  if (sv.up > 0.6) {                                             // um golpe de verdade (força ~0,3 ou mais)
+    const { peak, cur } = swingPeakUp(), r = peak > 0 ? cur / peak : 1;
+    if (r >= 0.85 && off < 0.11) return { q: 1, tag: 'PERFEITO!' }; // bola no meio e gesto no auge
+    if (peak > 1.2 && r < 0.45) return { q: 0, tag: 'CEDO' };      // o gesto já tinha passado
+  }
+  return { q: 0, tag: '' };
+}
+let qTimer = 0;
+function showQuality(tag, mine = true) {
+  if (!tag) return;
+  const el = $('qLabel'); if (!el) return;
+  el.textContent = mine ? tag : `${tag} (${oppLabel()})`;
+  el.className = 'show ' + (tag === 'PERFEITO!' ? 'perfect' : 'meh');
+  clearTimeout(qTimer); qTimer = setTimeout(() => { el.className = ''; }, 800);
+  if (tag === 'PERFEITO!' && actx) {                    // "plim" suave
+    tone(1568, 0.22, 0.035, 'sine'); tone(2349, 0.3, 0.025, 'sine', 0.04);
+  }
+}
+// trava a física por uma fração de segundo no impacto (peso do golpe)
+let hitStop = 0;
+function feelHit(side, label, q) {
+  const mine = side === S.mySide;
+  if (label === 'SMASH!' || q > 0) {
+    hitStop = Math.max(hitStop, label === 'SMASH!' ? 0.07 : 0.045);
+    if (mine) { cam.shake = Math.max(cam.shake, label === 'SMASH!' ? 0.45 : 0.22); try { navigator.vibrate && navigator.vibrate(label === 'SMASH!' ? 28 : 14); } catch (e) { } }
+  }
+}
+
+/* ---------- CPU: 4 níveis e 3 estilos ---------- */
+const BOT_LV = {
+  facil: { name: 'Fácil', maxV: 1.6, react: [0.22, 0.14], aim: 0.42, pw: [0.3, 0.45], err: 0.12, wide: 0.06, chop: 0.08, side: 0.15, predErr: 0.22, smash: 0, xp: 0.6 },
+  medio: { name: 'Médio', maxV: 2.3, react: [0.12, 0.1], aim: 0.58, pw: [0.4, 0.55], err: 0.05, wide: 0.04, chop: 0.12, side: 0.3, predErr: 0.1, smash: 0.08, xp: 1 },
+  dificil: { name: 'Difícil', maxV: 3.0, react: [0.07, 0.06], aim: 0.68, pw: [0.55, 0.5], err: 0.03, wide: 0.025, chop: 0.14, side: 0.4, predErr: 0.05, smash: 0.25, xp: 1.3 },
+  pro: { name: 'Pro', maxV: 3.8, react: [0.04, 0.04], aim: 0.74, pw: [0.7, 0.45], err: 0.015, wide: 0.012, chop: 0.16, side: 0.5, predErr: 0.03, smash: 0.4, xp: 1.6 },
+};
+const BOT_STYLES = {
+  equilibrado: { name: 'Equilibrado', pw: 1, chop: 1, err: 1, smash: 0, side: 1 },
+  defensor: { name: 'Defensor', pw: 0.75, chop: 2.5, err: 0.6, smash: -0.1, side: 0.8 },
+  atacante: { name: 'Atacante', pw: 1.2, chop: 0.5, err: 1.5, smash: 0.15, side: 1.2 },
+};
+let botStyle = 'equilibrado';
+const botLv = () => BOT_LV[pickState.diff] || BOT_LV.medio;
+
+/* ---------- ajuda: mostra onde a bola vai quicar do seu lado ---------- */
+const landMark = new THREE.Mesh(new THREE.RingGeometry(0.035, 0.05, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+landMark.rotation.x = -Math.PI / 2; landMark.visible = false; scene.add(landMark);
+function predictLanding() {
+  landMark.visible = false;
+  if (!(cfg.assist || S.tutorial) || S.rally.hitter !== -S.mySide) return;
+  const b = { p: [...S.ball.p], v: [...S.ball.v], w: [...S.ball.w] };
+  for (let i = 0; i < 700; i++) {
+    const ev = []; stepBall(b, DT, ev, true);
+    const t = ev.find(e => e.t === 'table');
+    if (t) { if (t.z * S.mySide > 0) { landMark.position.set(t.x, TH + 0.004, t.z); landMark.visible = true; landMark.material.color.copy(trailColor); } return; }
+    if (b.p[1] < TH - 0.3) return;
+  }
+}
+function updateLandMark(t) {
+  if (!landMark.visible) return;
+  if (S.phase !== 'rally' || S.rally.rb > 0 || S.rally.hitter !== -S.mySide) { landMark.visible = false; return; }
+  const k = 0.5 + 0.5 * Math.sin(t * 10);
+  landMark.material.opacity = 0.35 + k * 0.35; landMark.scale.setScalar(1 + k * 0.25);
+}
+
+/* ---------- progresso: nível, XP, missões do dia e bolinhas por nível ---------- */
+const MISSIONS = [
+  { id: 'smash3', t: 'Faça 3 smashes', ev: 'smash', need: 3, xp: 120 },
+  { id: 'perf5', t: 'Acerte 5 batidas PERFEITAS', ev: 'perfect', need: 5, xp: 150 },
+  { id: 'win1', t: 'Vença 1 partida', ev: 'win', need: 1, xp: 150 },
+  { id: 'rally10', t: 'Ganhe um ponto num rally de 10 batidas', ev: 'rally10', need: 1, xp: 120 },
+  { id: 'curve3', t: 'Faça 3 pontos com curva', ev: 'curvept', need: 3, xp: 120 },
+  { id: 'play3', t: 'Jogue 3 partidas', ev: 'match', need: 3, xp: 100 },
+  { id: 'ace2', t: 'Faça 2 aces de saque', ev: 'ace', need: 2, xp: 130 },
+  { id: 'chop5', t: 'Acerte 5 cortes', ev: 'chop', need: 5, xp: 100 },
+  { id: 'hard1', t: 'Vença a CPU no Difícil ou no Pro', ev: 'winhard', need: 1, xp: 250 },
+  { id: 'online1', t: 'Jogue 1 partida online', ev: 'online', need: 1, xp: 150 },
+];
+const SKIN_LV = { branca: 1, laranja: 1, preta: 2, rosa: 3, amarela: 4, verde: 5, azul: 6, roxa: 8, dourada: 10, arcoiris: 15 };
+const lvNeed = l => 200 + 100 * (l - 1);
+function levelOf(xp) { let l = 1, rest = xp; while (rest >= lvNeed(l) && l < 999) { rest -= lvNeed(l); l++; } return { lvl: l, cur: rest, need: lvNeed(l) }; }
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const prog = (() => { try { return JSON.parse(store.get('pp_prog', '{}')) || {}; } catch (e) { return {}; } })();
+prog.xp = prog.xp | 0; prog.m = prog.m || {};
+function saveProg() { store.set('pp_prog', JSON.stringify(prog)); }
+function dailyMissions() {
+  const d = today();
+  if (prog.day !== d) {                                  // sorteia 3 missões pelo dia (iguais o dia todo)
+    let h = 0; for (const c of d) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    const pool = MISSIONS.map(m => m.id), pickd = [];
+    while (pickd.length < 3) { h = (h * 1103515245 + 12345) >>> 0; const i = h % pool.length; pickd.push(pool.splice(i, 1)[0]); }
+    prog.day = d; prog.m = Object.fromEntries(pickd.map(id => [id, 0])); prog.paid = []; saveProg();
+  }
+  return Object.keys(prog.m).map(id => ({ ...MISSIONS.find(m => m.id === id), n: prog.m[id], paid: (prog.paid || []).includes(id) }));
+}
+const skinLocked = sk => !isVip() && levelOf(prog.xp).lvl < (SKIN_LV[sk.id] || 1);
+window.__feelReady = true;
+const matchStats = { perfect: 0, xpMissions: 0 };
+function progEvent(ev, n = 1) {
+  if (S.tutorial || !S.mode) return;
+  if (ev === 'perfect') matchStats.perfect++;
+  for (const m of dailyMissions()) {
+    if (m.ev !== ev || m.paid) continue;
+    prog.m[m.id] = Math.min(m.need, (prog.m[m.id] || 0) + n);
+    if (prog.m[m.id] >= m.need) { prog.paid = [...(prog.paid || []), m.id]; matchStats.xpMissions += m.xp; toast(`✅ Missão: ${m.t} · +${m.xp} XP`); }
+  }
+  saveProg();
+}
+function addXp(n, why) {
+  const before = levelOf(prog.xp).lvl;
+  prog.xp += Math.max(0, Math.round(n)); saveProg();
+  const after = levelOf(prog.xp).lvl;
+  if (after > before) {
+    const sk = BALL_SKINS.filter(s => (SKIN_LV[s.id] || 1) > before && (SKIN_LV[s.id] || 1) <= after).map(s => s.name);
+    setTimeout(() => { toast(`⬆️ Nível ${after}!${sk.length ? ` Nova bolinha: ${sk.join(', ')}` : ''}`); crowdReact('point', 0.7); }, 1200);
+  }
+  if (acct.user) rpc('sync_xp', { p_xp: prog.xp }).catch(() => { });
+  renderProgress();
+  return { before, after };
+}
+function matchXp(won) {
+  const pts = S.gameScores.reduce((a, g) => a + g[String(S.mySide)], 0);
+  let mult = S.mode === 'solo' ? botLv().xp : S.ranked ? 1.4 : 1.2;
+  const base = (won ? 100 : 40) + pts * 2 + matchStats.perfect * 3;
+  return Math.round(base * mult) + matchStats.xpMissions;
+}
+function renderProgress() {
+  const el = $('progCard'); if (!el) return;
+  const L = levelOf(prog.xp), ms = dailyMissions();
+  $('pgLvl').textContent = `Nível ${L.lvl}`;
+  $('pgXp').textContent = `${L.cur} / ${L.need} XP`;
+  $('pgBar').style.width = `${Math.round(L.cur / L.need * 100)}%`;
+  const list = $('pgMis'); list.textContent = '';
+  for (const m of ms) list.append(h('div', { class: 'pg-m' + (m.paid ? ' done' : '') },
+    h('span', { text: (m.paid ? '✅ ' : '🎯 ') + m.t }), h('b', { text: m.paid ? `+${m.xp}` : `${m.n}/${m.need}` })));
+  if (typeof renderPick === 'function') renderPick();
+}
+// resultado no fim: XP ganho e barra de nível
+function overXp(won) {
+  if (S.tutorial) return;
+  progEvent('match'); if (won) progEvent('win');
+  if (won && S.mode === 'solo' && (pickState.diff === 'dificil' || pickState.diff === 'pro')) progEvent('winhard');
+  if (S.mode === 'online') progEvent('online');
+  const gain = matchXp(won), r = addXp(gain), L = levelOf(prog.xp);
+  const el = $('overXp');
+  if (el) {
+    el.textContent = '';
+    el.append(h('div', { class: 'ox-t' }, `+${gain} XP`, r.after > r.before ? h('b', { text: ` · subiu para o nível ${r.after}!` }) : null),
+      h('div', { class: 'ox-bar' }, h('i', { style: `width:${Math.round(L.cur / L.need * 100)}%` })), h('small', { text: `Nível ${L.lvl} · ${L.cur}/${L.need} XP` }));
+  }
+  matchStats.perfect = 0; matchStats.xpMissions = 0;
+}
+
+/* ---------- tutorial guiado (1 minuto) ---------- */
+const TUT = [
+  { k: 'move', title: 'Mover', text: 'Mova o mouse (ou o dedo): a raquete acompanha. Leve a raquete de um lado ao outro da mesa.', need: 1 },
+  { k: 'hit', title: 'Rebater', text: 'Quando a bola chegar, faça um movimento rápido PARA CIMA. Devolva 3 bolas na mesa.', need: 3 },
+  { k: 'side', title: 'Curva', text: 'Puxe para cima E para o lado na hora da batida: a bola faz curva. Acerte 2 com curva.', need: 2, label: 'SIDE-SPIN' },
+  { k: 'chop', title: 'Corte', text: 'Puxe a raquete PARA TRÁS (para baixo) na batida: é o corte. Acerte 2 cortes.', need: 2, label: 'CORTE' },
+  { k: 'smash', title: 'Smash', text: 'Bola alta? Gesto bem rápido para cima. Acerte 1 smash.', need: 1, label: 'SMASH!', feed: 'high' },
+  { k: 'perfect', title: 'Tempo certo', text: 'Bata com a bola no MEIO da raquete, com o gesto no auge: aparece PERFEITO. Consiga 1.', need: 1, q: 'PERFEITO!' },
+  { k: 'serve', title: 'Saque', text: 'Agora é você: leve a raquete até a bola e puxe para cima. Acerte 2 saques na mesa.', need: 2, serve: true },
+];
+function startTutorial() {
+  ensureAudio(); cleanupNet();
+  startGame('solo', 1, 1); enterPlayMode();
+  S.tutorial = { i: 0, n: 0, minX: 9, maxX: -9 };
+  document.body.classList.add('tutorial');
+  renderTutorial();
+}
+function renderTutorial() {
+  const el = $('tutUI'); if (!el) return;
+  if (!S.tutorial) { el.classList.add('hidden'); return; }
+  const st = TUT[S.tutorial.i];
+  el.classList.remove('hidden');
+  $('tutStep').textContent = `PASSO ${S.tutorial.i + 1}/${TUT.length} · ${st.title.toUpperCase()}`;
+  $('tutText').textContent = st.text;
+  $('tutDots').innerHTML = Array.from({ length: st.need }, (_, i) => `<i class="${i < S.tutorial.n ? 'on' : ''}"></i>`).join('');
+}
+function tutProgress(ok, hint) {
+  const T = S.tutorial; if (!T) return;
+  if (!ok) { if (hint) showMsg('Quase!', hint); return; }
+  T.n++;
+  tone(1046, 0.12, 0.04, 'sine'); tone(1568, 0.16, 0.03, 'sine', 0.08);
+  if (T.n >= TUT[T.i].need) {
+    T.i++; T.n = 0;
+    if (T.i >= TUT.length) { finishTutorial(); return; }
+    showMsg('Boa!', `Próximo: ${TUT[T.i].title}`); crowdReact('point', 0.6);
+  }
+  renderTutorial();
+}
+function finishTutorial() {
+  const first = store.get('pp_tut', '0') !== '1';
+  store.set('pp_tut', '1');
+  S.tutorial = null; document.body.classList.remove('tutorial'); renderTutorial();
+  showBanner('TUTORIAL COMPLETO!', first ? '+200 XP · agora encare a CPU' : 'mandou bem!', 'win', 3500);
+  celebrate(0.8); crowdReact('point', 1);
+  if (first) addXp(200);
+  setTimeout(() => { if (S.mode === 'solo' && !S.tutorial) goMenu(); }, 3800);
+}
+function tutTick() {                                    // passo "mover": precisa cruzar a mesa
+  const T = S.tutorial; if (!T || TUT[T.i].k !== 'move') return;
+  T.minX = Math.min(T.minX, me.x); T.maxX = Math.max(T.maxX, me.x);
+  if (T.maxX - T.minX > 0.9) tutProgress(true);
+}
+// a CPU só alimenta bolas no tutorial (não devolve)
+function tutFeed() {
+  const sd = sideOfBot(), st = TUT[S.tutorial.i];
+  const B = [bot.x, TH + 0.18, sd * (HL + 0.2)];
+  const tx = clamp(me.x + (Math.random() - 0.5) * 0.25, -0.5, 0.5), tz = -sd * (HL - 0.45 - Math.random() * 0.25);
+  const T = st.feed === 'high' ? 1.45 : 1.05, g = 9.81;
+  const v = [(tx - B[0]) / T, ((BALL_Y - B[1]) + 0.5 * g * T * T) / T * (st.feed === 'high' ? 0.92 : 0.86), (tz - B[2]) / T];
+  applyHit(sd, B, { v, w: [0, 0, 0], label: 'SAQUE' }, false);
+  bot.lunge = 0.15;
+}
+function tutPoint(winner, reason) {
+  const T = S.tutorial, st = TUT[T.i];
+  S.score = { '1': 0, '-1': 0 };
+  if (st.k === 'move') return;
+  if (winner === S.mySide && reason === 'miss') {
+    if (st.label && S.lastLabel !== st.label) return tutProgress(false, st.k === 'side' ? 'Puxe para cima e para o lado ao mesmo tempo' : st.k === 'chop' ? 'Puxe a raquete para baixo, para trás' : 'Gesto mais rápido na bola alta');
+    if (st.q && S.lastQ !== st.q) return tutProgress(false, 'Bola no meio da raquete e gesto no auge');
+    return tutProgress(true);
+  }
+  tutProgress(false, st.serve ? 'Raquete atrás da bola e puxe para cima' : 'Puxe para cima quando a bola chegar');
+}
+
+/* ---------- telas: rótulo de qualidade, tutorial, progresso, nível da CPU ---------- */
+function initFeelUI() {
+  const st = document.createElement('style');
+  st.textContent = `
+  #qLabel { position: fixed; left: 50%; top: 58%; transform: translate(-50%, -50%) scale(.7); opacity: 0; pointer-events: none; z-index: 12; font: italic 900 26px system-ui; letter-spacing: .06em; transition: opacity .15s, transform .25s cubic-bezier(.2,1.8,.4,1); }
+  #qLabel.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #qLabel.perfect { color: #ffe27a; text-shadow: 0 0 18px rgba(255,200,60,.9), 0 3px 0 rgba(0,0,0,.35); font-size: 32px; }
+  #qLabel.meh { color: rgba(255,255,255,.75); text-shadow: 0 2px 8px rgba(0,0,0,.7); font-size: 18px; }
+  #tutUI { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 14; width: min(560px, 94vw); background: rgba(16,10,22,.88); border: 1px solid rgba(255,211,77,.35); border-radius: 16px; padding: 10px 14px; text-align: center; }
+  #tutUI.hidden { display: none; }
+  #tutStep { font: 900 12px system-ui; letter-spacing: .14em; color: #ffd34d; }
+  #tutText { font-size: 15px; font-weight: 700; margin: 4px 0 6px; line-height: 1.35; }
+  #tutDots { display: inline-flex; gap: 6px; } #tutDots i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255,255,255,.5); }
+  #tutDots i.on { background: #2fd16b; border-color: #2fd16b; box-shadow: 0 0 10px #2fd16b; }
+  #tutSkip { position: absolute; right: 10px; top: 8px; border: 0; background: none; color: rgba(255,255,255,.6); font-size: 12px; font-weight: 800; cursor: pointer; }
+  body.tutorial #board, body.tutorial #fmtTag, body.tutorial #tag, body.tutorial #streak { visibility: hidden; }
+  .prog { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 10px 12px; margin-bottom: 10px; text-align: left; }
+  .pg-top { display: flex; align-items: baseline; justify-content: space-between; } .pg-top b { font-size: 16px; } .pg-top small { opacity: .7; font-weight: 700; }
+  .pg-bar { height: 7px; border-radius: 999px; background: rgba(255,255,255,.1); overflow: hidden; margin: 6px 0 8px; } .pg-bar i { display: block; height: 100%; background: linear-gradient(90deg, #ff4f8b, #ffd34d); border-radius: 999px; }
+  .pg-m { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; padding: 3px 0; } .pg-m b { color: #ffd34d; } .pg-m.done { opacity: .55; }
+  .tut-btn { margin-top: 0; } .tut-btn.new { box-shadow: 0 0 0 2px #ffd34d, 0 0 18px rgba(255,211,77,.45); }
+  .bs.lock { opacity: .35; filter: grayscale(.6); position: relative; } .bs.lock::after { content: '🔒'; position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; filter: none; }
+  #overXp { margin: 8px 0 4px; } #overXp:empty { display: none; }
+  .ox-t { font-weight: 900; color: #ffd34d; } .ox-t b { color: #2fd16b; }
+  .ox-bar { height: 8px; border-radius: 999px; background: rgba(255,255,255,.1); overflow: hidden; margin: 6px 0 3px; } .ox-bar i { display: block; height: 100%; background: linear-gradient(90deg, #ff4f8b, #ffd34d); transition: width 1.2s ease; }
+  #overXp small { opacity: .7; font-size: 12px; }`;
+  document.head.appendChild(st);
+  document.body.append(h('div', { id: 'qLabel' }));
+  const skip = h('button', { id: 'tutSkip', text: 'Pular tutorial ✕' }); skip.onclick = () => { S.tutorial = null; document.body.classList.remove('tutorial'); renderTutorial(); goMenu(); };
+  document.body.append(h('div', { id: 'tutUI', class: 'hidden' }, skip, h('div', { id: 'tutStep' }), h('div', { id: 'tutText' }), h('div', { id: 'tutDots' })));
+  // menu: botão do tutorial, cartão de progresso e nível da CPU
+  const tb = h('button', { class: 'btn ghost tut-btn' + (store.get('pp_tut', '0') === '1' ? '' : ' new'), id: 'btnTut', text: store.get('pp_tut', '0') === '1' ? '🎓 Tutorial (1 min)' : '🎓 Novo aqui? Faça o tutorial (1 min)' });
+  tb.onclick = startTutorial;
+  $('btnSolo').after(tb);
+  const pc = h('div', { class: 'prog', id: 'progCard' },
+    h('div', { class: 'pg-top' }, h('b', { id: 'pgLvl' }), h('small', { id: 'pgXp' })),
+    h('div', { class: 'pg-bar' }, h('i', { id: 'pgBar' })),
+    h('div', { class: 'lo-t', text: 'MISSÕES DE HOJE' }), h('div', { id: 'pgMis' }));
+  $('menu').prepend(pc);
+  const seg = h('div', { class: 'seg', id: 'diffSeg' }, ...Object.entries(BOT_LV).map(([k, v]) => h('button', { 'data-d': k }, v.name, h('small', { text: `XP ×${v.xp}` }))));
+  const fmt = $('fmtSeg');
+  if (fmt) fmt.after(h('div', { class: 'lo-t', text: 'CPU (TREINO)' }), seg);
+  seg.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; pickState.diff = b.dataset.d; store.set('pp_diff', pickState.diff); renderPick(); });
+  const ov = $('overScore'); if (ov) ov.after(h('div', { id: 'overXp' }));
+  renderProgress();
+}
+
+/* =====================================================================
    RENDER
    ===================================================================== */
 const _q = new THREE.Quaternion(), _ax = new THREE.Vector3();
@@ -4082,13 +4431,13 @@ function renderWorld(dt, t) {
   ledFlash = Math.max(0, ledFlash - dt * 1.2);
   jumboMat.emissiveIntensity = 1.0 + ledFlash * 0.5;
   hitFlash = Math.max(0, hitFlash - dt * 5);
-  hitLight.intensity = hitFlash * 3;
+  hitLight.intensity = hitFlash * 1.6;
   rimSpots.forEach((s, i) => { s.intensity = A.rimBase + Math.sin(t * 0.8 + i * 1.7) * A.rimPulse + ledFlash * A.rimFlash; });
   updateArena(t, dt);
   updateDust(t, dt);
   sparks.update(dt); confetti.update(dt); pyro.update(dt);
   updateRacketFx(myPaddleMesh, t, dt); updateRacketFx(oppPaddleMesh, t, dt); aura.update(dt);
-  updateFireworks(dt); fwSolid.update(dt); asmrTick(dt);
+  updateFireworks(dt); fwSolid.update(dt); asmrTick(dt); updateLandMark(t); tutTick();
   updateRings(dt);
   updateNet(dt * TIME_SCALE);
 
@@ -4125,7 +4474,8 @@ function frame(now) {
     updateMyPaddle(dt);
     perfMonitor(rawDt);
   }
-  if (!S.paused) acc += dt * TIME_SCALE;
+  if (hitStop > 0) hitStop -= dt;                      // peso do golpe: congela um instante
+  else if (!S.paused) acc += dt * TIME_SCALE;
   let n = 0;
   while (acc >= DT && n++ < 60) { physicsStep(DT); acc -= DT; }
   if (S.mode === 'online') {
@@ -4176,4 +4526,5 @@ checkVipLink();
 const roomParam = new URLSearchParams(location.search).get('sala');
 if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
 
-window.__pp = { asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+initFeelUI();
+window.__pp = { swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };

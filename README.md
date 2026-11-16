@@ -82,6 +82,21 @@ No menu dá para escolher a cor da bolinha: branca, laranja, preta, rosa, amarel
 dourada ou arco-íris. É visual e pessoal: cada jogador vê a bolinha que escolheu. O halo de luz em volta
 da bola vem desligado (liga em ⚙️ → "Brilho (halo) em volta da bola").
 
+## Acerto de tempo e peso do golpe
+Bola no meio da raquete com o gesto no auge = **PERFEITO!** (bola um pouco mais rápida, sem espalhar, com um
+"plim"). Gesto que já tinha passado = **CEDO**; bola na ponta da raquete = **NA PONTA** (sai torta). No smash
+e no PERFEITO o jogo congela uma fração de segundo, a câmera dá um tranco e o celular vibra.
+
+## CPU, tutorial e progresso
+- **CPU:** Fácil, Médio, Difícil ou Pro (escolha no menu), cada partida com um estilo: Equilibrado,
+  Defensor (corta muito, erra pouco) ou Atacante (bate forte e dá smash, erra mais).
+- **Tutorial (1 minuto):** mover, rebater, curva, corte, smash, tempo certo e saque. A CPU só alimenta bolas.
+  Primeira vez: +200 XP.
+- **Nível e XP:** cada partida dá XP (vitória, pontos, batidas PERFEITAS; vale mais contra CPU difícil, online
+  e ranqueada). **Missões do dia:** 3 por dia (ex.: 3 smashes, 5 PERFEITOS, vencer 1 partida). As bolinhas
+  liberam por nível (preta no 2 até arco-íris no 15). Com conta, o XP fica salvo no servidor (`profiles.xp`).
+- **Ajuda opcional:** em ⚙️, uma marquinha mostra onde a bola vai quicar do seu lado.
+
 ## Sons de detalhe
 Vento da raquete cortando o ar (mais longo e agudo quanto mais rápido o gesto, mesmo sem acertar a bola),
 toque leve com som abafado, smash com estalo e "tum" grave, ar passando pela bola rápida ou com muito efeito,
