@@ -30,7 +30,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const $ = id => document.getElementById(id);
 const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { } } };
 // configurações do jogador (salvas no aparelho)
-const CFG_DEF = { sensMove: 1, sensSwing: 1, vMaster: 90, vCrowd: 80, vMusic: 45, vFx: 100, vUi: 70, shake: true, replays: true, showPing: true, lockMouse: true, ballGlow: false };
+const CFG_DEF = { sensMove: 1, sensSwing: 1, vMaster: 90, vCrowd: 80, vMusic: 45, vFx: 100, vUi: 70, shake: true, replays: true, showPing: true, lockMouse: true, ballGlow: false, musicInGame: false, asmr: true };
 const cfg = Object.assign({}, CFG_DEF, (() => { try { return JSON.parse(store.get('pp_cfg', '{}')) || {}; } catch (e) { return {}; } })());
 const saveCfg = () => store.set('pp_cfg', JSON.stringify(cfg));
 const volGain = v => v <= 0 ? 0 : Math.pow(clamp(v, 0, 100) / 100, 1.4);
@@ -2033,22 +2033,41 @@ function applyArenaAudio() {
   crowdSendG.gain.setTargetAtTime(au.rev * 1.8, t, 0.2);
   crowdBus.gain.setTargetAtTime(au.crowd, t, 0.3);
   for (const n of ambNodes) { try { n.stop ? n.stop() : n.disconnect(); } catch (e) { } }
-  ambNodes = [];
+  ambNodes = []; clearTimeout(waveTimer);
   if (!au.amb) return;
   const src = actx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
   const lp = actx.createBiquadFilter(); lp.type = 'lowpass';
   const g = actx.createGain();
   if (au.amb === 'waves') {
-    lp.frequency.value = 700; g.gain.value = 0.05;
-    const lfo = actx.createOscillator(); lfo.frequency.value = 0.11; const lg = actx.createGain(); lg.gain.value = 0.04;
-    lfo.connect(lg).connect(g.gain); lfo.start(); ambNodes.push(lfo);
-    const hiss = actx.createBufferSource(); hiss.buffer = noiseBuf; hiss.loop = true; hiss.playbackRate.value = 1.7;
-    const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2500; const hg = actx.createGain(); hg.gain.value = 0.012;
-    lfo.connect(hg.gain); hiss.connect(hp).connect(hg).connect(ambGain); hiss.start(0, Math.random() * 2); ambNodes.push(hiss);
+    lp.frequency.value = 160; g.gain.value = 0.01;      // só um rumor de mar bem longe, por baixo das ondas
+    waveTimer = setTimeout(oneWave, 400);
   } else {
-    lp.frequency.value = 260; g.gain.value = 0.06;
+    lp.frequency.value = 260; g.gain.value = 0.045;
   }
   src.connect(lp).connect(g).connect(ambGain); src.start(0, Math.random() * 2); ambNodes.push(src);
+}
+let waveTimer = 0;
+function oneWave() {                            // uma onda: cresce, quebra e a espuma vai sumindo na areia
+  if (!actx || !A.def || A.def.audio.amb !== 'waves') return;
+  const t = actx.currentTime + 0.05, rise = 1.4 + Math.random() * 1.4, dur = rise + 3 + Math.random() * 2.5;
+  const peak = 0.018 + Math.random() * 0.014, pan = (Math.random() - 0.5) * 0.9;
+  const out = actx.createStereoPanner ? actx.createStereoPanner() : actx.createGain();
+  if (out.pan) out.pan.value = pan;
+  out.connect(ambGain);
+  const body = actx.createBufferSource(); body.buffer = noiseBuf; body.playbackRate.value = 0.55;
+  const blp = actx.createBiquadFilter(); blp.type = 'lowpass'; blp.Q.value = 0.3;
+  blp.frequency.setValueAtTime(220, t); blp.frequency.exponentialRampToValueAtTime(950, t + rise); blp.frequency.exponentialRampToValueAtTime(300, t + dur);
+  const bg = actx.createGain(); bg.gain.setValueAtTime(0.0001, t); bg.gain.exponentialRampToValueAtTime(peak, t + rise);
+  bg.gain.exponentialRampToValueAtTime(peak * 0.35, t + rise + 0.9); bg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  body.connect(blp).connect(bg).connect(out); body.start(t, Math.random() * 2); body.stop(t + dur + 0.1);
+  const foam = actx.createBufferSource(); foam.buffer = noiseBuf; foam.playbackRate.value = 1.25;
+  const fhp = actx.createBiquadFilter(); fhp.type = 'bandpass'; fhp.frequency.value = 3200; fhp.Q.value = 0.5;
+  const fg = actx.createGain(); fg.gain.setValueAtTime(0.0001, t + rise * 0.85); fg.gain.exponentialRampToValueAtTime(peak * 0.45, t + rise + 0.25);
+  fg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  foam.connect(fhp).connect(fg).connect(out); foam.start(t, Math.random() * 2); foam.stop(t + dur + 0.1);
+  ambNodes.push(body, foam);
+  if (ambNodes.length > 24) ambNodes.splice(1, ambNodes.length - 13);
+  waveTimer = setTimeout(oneWave, (dur * 0.62 + Math.random() * 1.5) * 1000);
 }
 function boom(v = 0.6) {                       // estouro grave (fogos / pirotecnia)
   if (!actx) return;
@@ -2132,7 +2151,8 @@ function ensureAudio() {
     crowdBus = actx.createGain(); crowdBus.gain.value = 1;
     const crowdSend = actx.createGain(); crowdSend.gain.value = 0.5; crowdSendG = crowdSend;
     ambGain = actx.createGain(); ambGain.gain.value = 1; ambGain.connect(VOL.crowd);
-    crowdBus.connect(VOL.crowd); VOL.crowd.connect(crowdSend).connect(rev);
+    VOL.crowdDuck = actx.createGain(); VOL.crowdDuck.connect(VOL.crowd);
+    crowdBus.connect(VOL.crowdDuck); VOL.crowd.connect(crowdSend).connect(rev);
     // bancos de sons (4 variações cada para não soar repetitivo)
     const bank = (modes, o) => [0, 1, 2, 3].map(() => synthImpact(modes, o));
     IMP.table = bank([[2350, 0.011, 1], [3950, 0.007, 0.55], [5700, 0.004, 0.3], [1180, 0.018, 0.35], [430, 0.03, 0.3], [190, 0.045, 0.2]], { click: 0.8, clickLP: 0.6 });
@@ -2298,6 +2318,7 @@ function playImpact(kind, pos, strength, snd) {
     pan = clamp((dx * _camR.x + dz * _camR.z) / 1.8, -0.85, 0.85);
   }
   if (snd) { src.playbackRate.value *= snd.rate; cutoff *= snd.cut; vol *= snd.vol; }
+  if (kind === 'paddle' && st < 0.35) { cutoff *= 0.45 + st * 1.4; vol *= 0.75 + st * 0.6; }   // toque leve: "tuc" macio
   lp.frequency.value = Math.min(cutoff, 18000);
   const g = actx.createGain(); g.gain.value = vol;
   src.connect(lp).connect(g);
@@ -2305,6 +2326,106 @@ function playImpact(kind, pos, strength, snd) {
   if (actx.createStereoPanner) { const p = actx.createStereoPanner(); p.pan.value = pan; g.connect(p).connect(bus); }
   else g.connect(bus);
   src.start();
+}
+/* ---------- sons de detalhe ("ASMR") ---------- */
+const panFor = pos => {
+  if (!pos) return 0;
+  _camR.setFromMatrixColumn(camera.matrixWorld, 0);
+  return clamp(((pos[0] - camera.position.x) * _camR.x + (pos[2] - camera.position.z) * _camR.z) / 1.8, -0.85, 0.85);
+};
+function outTo(bus, pan) {
+  if (actx.createStereoPanner) { const p = actx.createStereoPanner(); p.pan.value = pan; p.connect(bus); return p; }
+  return bus;
+}
+// vento da raquete cortando o ar: grave "fff" + agudo "sss", mais longo e mais agudo quanto mais rápido
+function swingAir(pan, s, vol = 1) {
+  if (!actx || !cfg.asmr) return;
+  const t = actx.currentTime, d = 0.1 + s * 0.2, out = outTo(sfxBus, pan);
+  const a = actx.createBufferSource(); a.buffer = noiseBuf; a.playbackRate.value = 0.9 + s * 0.6;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.9;
+  bp.frequency.setValueAtTime(320 + s * 200, t); bp.frequency.exponentialRampToValueAtTime(900 + s * 1600, t + d * 0.6); bp.frequency.exponentialRampToValueAtTime(500, t + d);
+  const g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime((0.04 + s * 0.16) * vol, t + d * 0.45); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  a.connect(bp).connect(g).connect(out); a.start(t, Math.random() * 2); a.stop(t + d + 0.05);
+  const b = actx.createBufferSource(); b.buffer = noiseBuf; b.playbackRate.value = 1.4;
+  const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.setValueAtTime(2500 + s * 2500, t);
+  const g2 = actx.createGain(); g2.gain.setValueAtTime(0.0001, t); g2.gain.exponentialRampToValueAtTime((0.004 + s * 0.03) * vol, t + d * 0.5); g2.gain.exponentialRampToValueAtTime(0.0001, t + d * 0.9);
+  b.connect(hp).connect(g2).connect(out); b.start(t, Math.random() * 2); b.stop(t + d + 0.05);
+}
+// smash: estalo seco + "tum" grave por baixo do som da raquete
+function smashCrack(pan, s) {
+  if (!actx) return;
+  const t = actx.currentTime, out = outTo(sfxBus, pan);
+  const n = actx.createBufferSource(); n.buffer = noiseBuf;
+  const hp = actx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3000;
+  const g = actx.createGain(); g.gain.setValueAtTime(0.09 * s, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+  n.connect(hp).connect(g).connect(out); n.start(t, Math.random() * 2); n.stop(t + 0.06);
+  const o = actx.createOscillator(), og = actx.createGain();
+  o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(55, t + 0.09);
+  og.gain.setValueAtTime(0.12 * s, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+  o.connect(og).connect(out); o.start(t); o.stop(t + 0.14);
+}
+// tênis no chão do ginásio quando o jogador freia ou muda de lado rápido
+function squeak(pan, s) {
+  if (!actx || !cfg.asmr) return;
+  const t = actx.currentTime, d = 0.07 + Math.random() * 0.06, f0 = 1700 + Math.random() * 700, out = outTo(sfxBus, pan);
+  const o = actx.createOscillator(); o.type = 'triangle';
+  o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * (1.15 + Math.random() * 0.2), t + d * 0.5); o.frequency.linearRampToValueAtTime(f0 * 0.95, t + d);
+  const vib = actx.createOscillator(), vg = actx.createGain(); vib.frequency.value = 55 + Math.random() * 30; vg.gain.value = 60; vib.connect(vg).connect(o.frequency);
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f0; bp.Q.value = 3;
+  const g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.012 + s * 0.012, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  o.connect(bp).connect(g).connect(out); o.start(t); o.stop(t + d + 0.02); vib.start(t); vib.stop(t + d + 0.02);
+}
+// ar passando pela bola rápida/com muito efeito (bem baixinho, aparece de fone)
+const asmr = { air: null, swingT: 0, lastSp: 0, duck: -1 };
+function ensureBallAir() {
+  if (asmr.air || !actx) return asmr.air;
+  const src = actx.createBufferSource(); src.buffer = noiseBuf; src.loop = true; src.playbackRate.value = 1.1;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 2.2; bp.frequency.value = 2500;
+  const g = actx.createGain(); g.gain.value = 0;
+  const p = actx.createStereoPanner ? actx.createStereoPanner() : null;
+  src.connect(bp).connect(g); if (p) g.connect(p).connect(sfxBus); else g.connect(sfxBus);
+  src.start();
+  return (asmr.air = { bp, g, p });
+}
+const INDOOR = { neon: 1, ginasio: 1, final: 1 };
+function asmrTick(dt) {
+  if (!actx) return;
+  const t = actx.currentTime, live = !!S.mode && S.phase !== 'lobby' && S.phase !== 'over' && !RP.play && !S.paused;
+  // torcida quieta no saque e no rally
+  const dk = S.phase === 'serve' || S.phase === 'rally' ? 0.45 : 1;
+  if (VOL.crowdDuck && dk !== asmr.duck) { asmr.duck = dk; VOL.crowdDuck.gain.setTargetAtTime(dk, t, dk < 1 ? 0.6 : 0.15); }
+  // vento quando eu balanço a raquete rápido (mesmo sem acertar a bola)
+  if (live && cfg.asmr) {
+    const sv = swipeVel(), sp = Math.hypot(sv.x, sv.up);
+    asmr.swingT -= dt;
+    if (sp > 7 && asmr.lastSp <= 7 && asmr.swingT <= 0) {
+      asmr.swingT = 0.22;
+      swingAir(clamp(me.x * 0.5, -0.6, 0.6), clamp((sp - 7) / 22, 0.05, 1), 0.8);
+    }
+    asmr.lastSp = sp;
+    // tênis no chão (só nos cenários fechados)
+    if (INDOOR[A.id]) for (const [m, sd] of [[myPaddleMesh, S.mySide], [oppPaddleMesh, -S.mySide]]) {
+      const u = m.userData; u.sqT = (u.sqT || 0) - dt;
+      const v = u.vx || 0, pv = u.pvx || 0;
+      if (u.sqT <= 0 && Math.abs(pv) > 1.5 && (Math.sign(v) !== Math.sign(pv) || Math.abs(v) < Math.abs(pv) * 0.35) && Math.random() < 0.45) {
+        u.sqT = 1.1; squeak(panFor([m.position.x, 0, m.position.z]), clamp(Math.abs(pv) / 4, 0, 1) * (sd === S.mySide ? 1 : 0.6));
+      }
+      u.pvx = v;
+    }
+  }
+  // ar da bola
+  const air = cfg.asmr ? ensureBallAir() : asmr.air;
+  if (air) {
+    let target = 0;
+    if (live && S.phase === 'rally' && S.ballVisible && cfg.asmr) {
+      const v = S.ball.v, w = S.ball.w, sp = Math.hypot(v[0], v[1], v[2]), spin = Math.hypot(w[0], w[1], w[2]);
+      const dx = S.ball.p[0] - camera.position.x, dy = S.ball.p[1] - camera.position.y, dz = S.ball.p[2] - camera.position.z;
+      target = (clamp((sp - 5) / 9, 0, 1) * 0.07 + clamp(spin / 160, 0, 1) * 0.03) / (1 + 0.6 * Math.hypot(dx, dy, dz));
+      air.bp.frequency.setTargetAtTime(1600 + sp * 140 + spin * 4, t, 0.05);
+      if (air.p) air.p.pan.setTargetAtTime(panFor(S.ball.p), t, 0.05);
+    }
+    air.g.gain.setTargetAtTime(target, t, 0.06);
+  }
 }
 function whoosh(pos, strength) {
   if (!actx) return;
@@ -2328,7 +2449,9 @@ function sfx(k, label, pos, s = 0.5, snd) {
   if (k === 'hit') {
     const smash = label === 'SMASH!';
     playImpact(smash ? 'smash' : 'paddle', pos, s, snd);
-    if (s > 0.55) whoosh(pos, s);
+    const recent = snd === myRacket.sound && asmr.swingT > 0;      // o vento do meu gesto já tocou
+    if (cfg.asmr) { if (s > 0.25 && !recent) swingAir(panFor(pos), s, 0.9); } else if (s > 0.55) whoosh(pos, s);
+    if (smash || s > 0.85) smashCrack(panFor(pos), s);
   }
   else if (k === 'table') playImpact('table', pos, s);
   else if (k === 'net') playImpact('net', pos, Math.max(0.25, s));
@@ -2406,7 +2529,7 @@ const music = (() => {
     start() { if (!timer) timer = setInterval(schedule, 60); schedule(); this.duck(); },
     duck() {                                    // volume pelo momento: menu cheio, partida baixinho
       if (!actx || !VOL.musicDuck) return;
-      const v = S.phase === 'lobby' ? 1 : S.phase === 'over' ? 0.7 : 0.32;
+      const v = S.phase === 'lobby' ? 1 : S.phase === 'over' ? 0.7 : cfg.musicInGame ? 0.22 : 0;
       VOL.musicDuck.gain.setTargetAtTime(v, actx.currentTime, 0.6);
     },
   };
@@ -3212,6 +3335,8 @@ const CFG_UI = [
     ['toggle', 'replays', 'Replays dos pontos bonitos e melhores momentos'],
     ['toggle', 'shake', 'Câmera treme no smash'],
     ['toggle', 'ballGlow', 'Brilho (halo) em volta da bola'],
+    ['toggle', 'musicInGame', 'Música durante a partida (desligada = só bola, torcida e ambiente)'],
+    ['toggle', 'asmr', 'Sons de detalhe: vento da raquete, ar da bola e tênis no chão'],
     ['toggle', 'showPing', 'Mostrar o ping no online'],
     ['toggle', 'lockMouse', 'Tela cheia com o mouse preso na partida (bom para dois monitores)'],
     ['quality'],
@@ -3963,7 +4088,7 @@ function renderWorld(dt, t) {
   updateDust(t, dt);
   sparks.update(dt); confetti.update(dt); pyro.update(dt);
   updateRacketFx(myPaddleMesh, t, dt); updateRacketFx(oppPaddleMesh, t, dt); aura.update(dt);
-  updateFireworks(dt); fwSolid.update(dt);
+  updateFireworks(dt); fwSolid.update(dt); asmrTick(dt);
   updateRings(dt);
   updateNet(dt * TIME_SCALE);
 
@@ -4051,4 +4176,4 @@ checkVipLink();
 const roomParam = new URLSearchParams(location.search).get('sala');
 if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
 
-window.__pp = { applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+window.__pp = { asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };

@@ -82,6 +82,12 @@ No menu dá para escolher a cor da bolinha: branca, laranja, preta, rosa, amarel
 dourada ou arco-íris. É visual e pessoal: cada jogador vê a bolinha que escolheu. O halo de luz em volta
 da bola vem desligado (liga em ⚙️ → "Brilho (halo) em volta da bola").
 
+## Sons de detalhe
+Vento da raquete cortando o ar (mais longo e agudo quanto mais rápido o gesto, mesmo sem acertar a bola),
+toque leve com som abafado, smash com estalo e "tum" grave, ar passando pela bola rápida ou com muito efeito,
+tênis rangendo no chão nos cenários fechados e a torcida fazendo silêncio no saque e no rally. Na praia, ondas
+que crescem, quebram e somem na areia. A música toca no menu e some na partida (dá para manter em ⚙️).
+
 ## Chat rápido (estilo Rocket League)
 Durante o jogo, aperte **1 a 4** para escolher a categoria e de novo **1 a 4** para a frase
 (no celular, use o botão 💬). Categorias: Elogios, Reações, Provocações e Geral.
