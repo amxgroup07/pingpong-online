@@ -1149,9 +1149,11 @@ const RCFG = {};
 const rcfg = r => RCFG[r.id] || { enabled: true, free: !r.unlock, unlock_wins: r.unlock || null };
 const totalWins = () => Math.max(winCount(), (acct.profile && acct.profile.wins) || 0);
 const grantedTo = r => !!(acct.profile && Array.isArray(acct.profile.rackets) && acct.profile.rackets.includes(r.id));
-const isListed = r => isVip() || rcfg(r).enabled !== false || grantedTo(r);
+// por enquanto todas as raquetes estão liberadas para todo mundo (mude para false para voltar às regras do banco)
+const ALL_RACKETS_FREE = true;
+const isListed = r => ALL_RACKETS_FREE || isVip() || rcfg(r).enabled !== false || grantedTo(r);
 const isUnlocked = r => {
-  if (isVip() || grantedTo(r)) return true;
+  if (ALL_RACKETS_FREE || isVip() || grantedTo(r)) return true;
   const c = rcfg(r);
   if (c.enabled === false) return false;
   return !!c.free || (!!c.unlock_wins && totalWins() >= c.unlock_wins);

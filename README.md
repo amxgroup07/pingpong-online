@@ -63,7 +63,7 @@ mais certeira (com pouco controle a bola espalha e sai mais fácil numa batida e
 | Foguete | 5 | 2 | 2 | Carbono: muito rápida, pouco controle |
 | Muralha | 2 | 0 | 5 | Pino longo: sem efeito próprio, devolve o efeito do adversário invertido |
 | Raiz | 4 | 1 | 3 | Retrô sem esponja: bola reta e veloz |
-| Dragão Dourado | 4 | 4 | 4 | Lendária, libera com 3 vitórias |
+| Dragão Dourado | 4 | 4 | 4 | Lendária (por enquanto liberada para todos: `ALL_RACKETS_FREE` no game.js) |
 
 No online cada um usa a própria raquete (o adversário vê a sua). No treino, a CPU sorteia uma raquete por partida.
 Cada raquete tem visual próprio (lâmina, borracha, cabo) e um som de batida diferente.
