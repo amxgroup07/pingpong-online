@@ -1563,7 +1563,7 @@ function toggleFullscreen() {
 const settingsOpen = () => { const el = $('cfgScreen'); return !!el && !el.classList.contains('hidden'); };
 // mostra o aviso enquanto o mouse devia estar preso e não está (nunca segue o jogo com o mouse solto sem avisar)
 function needLockPrompt() {
-  return !!S.mode && S.phase !== 'lobby' && S.phase !== 'over' && cfg.lockMouse && lockSupported() && !lock.on && !lock.skip &&
+  return !!S.mode && S.mode !== 'spec' && S.phase !== 'lobby' && S.phase !== 'over' && cfg.lockMouse && lockSupported() && !lock.on && !lock.skip &&
     !settingsOpen() && !(typeof END !== 'undefined' && END.active) && !(typeof RP !== 'undefined' && RP.play);
 }
 function updateLockUI() {
@@ -1674,6 +1674,7 @@ function applyHit(side, B, shot, serve) {
   showLabel(shot.label);
   sfx('hit', shot.label, B, clamp(Math.hypot(...shot.v) / 11, 0.12, 1), (side === S.mySide ? myRacket : oppRacket).sound);
   recEvent('hit', B, clamp(Math.hypot(...shot.v) / 11, 0.12, 1), { label: shot.label, side, speed: Math.hypot(...shot.v) });
+  specEv('hit', B, clamp(Math.hypot(...shot.v) / 11, 0.12, 1), { label: shot.label, side, serve: !!serve, q: shot.q > 0 ? 'PERFEITO!' : '' });
   fxHit(side, B, shot.label);
   feelHit(side, shot.label, shot.q || 0);
   predictLanding();
@@ -1722,6 +1723,7 @@ function awardPoint(winner, reason) {
 }
 
 function onPoint(winner, reason, hl = false) {
+  specOut({ t: 'spoint', winner, reason, score: S.score, games: S.games, shot: S.rally.hitter === winner ? S.lastLabel : null });
   S.phase = 'point'; S.phaseT = 0;
   recPoint(winner, reason);
   if (winner && hl && (S.mode === 'online' || cfg.replays)) { RP.pending = true; RP.lastReplayPt = totalPts(); }
@@ -1795,6 +1797,7 @@ function serveBallPos() {
 function startGameBreak(w) {               // intervalo entre os games (MD3/MD5)
   S.phase = 'gamebreak'; S.phaseT = 0; S.ballVisible = false;
   const mine = w === S.mySide, g = S.gameScores[S.gameScores.length - 1];
+  specOut({ t: 'sgame', w, gs: g, games: S.games, gameNo: S.gameNo, gameScores: S.gameScores });
   const gm = S.games[String(S.mySide)], go = S.games[String(-S.mySide)];
   showBanner(mine ? `GAME ${S.gameNo} É SEU!` : `GAME ${S.gameNo} DE ${oppLabel().toUpperCase()}`,
     `${g[String(S.mySide)]} × ${g[String(-S.mySide)]} · games ${gm} × ${go}${isMatchPoint(w) ? ' · falta 1 game!' : ''}`, mine ? 'win' : 'lose', 3200);
@@ -1887,6 +1890,7 @@ function beginInstantReplay() {
   startReplay(c, { mode: 'instant', title: 'REPLAY', onEnd: () => { if (S.phase === 'replay') nextPoint(); } });
 }
 function physicsStep(dt) {
+  if (S.mode === 'spec') return;                       // quem assiste só desenha o que o anfitrião manda
   if (S.phase === 'lobby' || S.phase === 'over' || S.phase === 'replay') return;
   S.phaseT += dt;
 
@@ -1903,8 +1907,8 @@ function physicsStep(dt) {
     const ev = [];
     stepBall(S.ball, dt, ev, true);
     for (const e of ev) {
-      if (e.t === 'table') { sfx('table', null, [e.x, TH, e.z], e.s / 4.2); fxBounce(e.x, e.z); recEvent('table', [e.x, TH, e.z], e.s / 4.2); }
-      else if (e.t === 'net') { sfx('net', null, [e.x, e.y, 0], e.graze ? 0.3 + e.s / 30 : e.s / 6); netHit(e); recEvent('net', [e.x, e.y, 0], e.graze ? 0.3 + e.s / 30 : e.s / 6); }
+      if (e.t === 'table') { sfx('table', null, [e.x, TH, e.z], e.s / 4.2); fxBounce(e.x, e.z); recEvent('table', [e.x, TH, e.z], e.s / 4.2); specEv('table', [e.x, TH, e.z], e.s / 4.2); }
+      else if (e.t === 'net') { sfx('net', null, [e.x, e.y, 0], e.graze ? 0.3 + e.s / 30 : e.s / 6); netHit(e); recEvent('net', [e.x, e.y, 0], e.graze ? 0.3 + e.s / 30 : e.s / 6); specEv('net', [e.x, e.y, 0], e.graze ? 0.3 + e.s / 30 : e.s / 6, { graze: !!e.graze }); }
       else if (e.t === 'floor' && e.s > 0.25) sfx('floor', null, [e.x, 0, e.z], e.s / 3.5);
     }
     if (S.phase === 'rally') {
@@ -1927,6 +1931,7 @@ let peer = null, conn = null, isHost = false;
 let lastPadSend = 0, lastPing = 0;
 
 function send(m) { if (conn && conn.open) { try { conn.send(m); } catch (e) { } } }
+let curRoom = '';
 function genCode() {
   const ch = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   let s = ''; for (let i = 0; i < 5; i++) s += ch[Math.floor(Math.random() * ch.length)];
@@ -1934,8 +1939,10 @@ function genCode() {
 }
 function cleanupNet() {
   try { conn && conn.close(); } catch (e) { }
+  for (const c of specs.splice(0)) { try { c.close(); } catch (e) { } }
+  try { specConn && specConn.close(); } catch (e) { }
   try { peer && peer.destroy(); } catch (e) { }
-  conn = null; peer = null;
+  conn = null; peer = null; specConn = null;
 }
 function netErrorText(e) {
   const t = e && e.type;
@@ -1947,7 +1954,7 @@ function netErrorText(e) {
 function createRoom(fixed) {
   if (typeof Peer === 'undefined') { lobbyMsg('Não carregou a biblioteca de rede. Recarregue a página.'); return; }
   cleanupNet(); isHost = true; if (!S.ranked) S.oppName = null;
-  const code = fixed || genCode();
+  const code = fixed || genCode(); curRoom = code;
   if (!fixed) { showPanel('wait'); $('codeTxt').textContent = '·····'; lobbyMsg(''); }
   peer = new Peer(PEER_PREFIX + code, { debug: 1 });
   peer.on('open', () => {
@@ -1957,6 +1964,7 @@ function createRoom(fixed) {
     $('btnWa').href = 'https://wa.me/?text=' + encodeURIComponent('Bora jogar ping pong? 🏓 ' + link);
   });
   peer.on('connection', c => {
+    if (c.metadata && c.metadata.spec) { addSpectator(c); return; }   // 👀 espectador
     if (conn) { c.on('open', () => c.close()); return; }
     setupConn(c);
   });
@@ -1971,7 +1979,7 @@ function joinRoom(code, tries = 0) {
   if (typeof Peer === 'undefined') { lobbyMsg('Não carregou a biblioteca de rede. Recarregue a página.'); return; }
   code = (code || '').trim().toUpperCase();
   if (code.length < 4) { lobbyMsg('Digite o código da sala.'); return; }
-  cleanupNet(); isHost = false; if (!S.ranked) S.oppName = null;
+  cleanupNet(); isHost = false; if (!S.ranked) S.oppName = null; curRoom = code;
   if (!S.ranked) { showPanel('joining'); $('joinTxt').textContent = `Entrando na sala ${code}…`; lobbyMsg(''); }
   peer = new Peer({ debug: 1 });
   peer.on('open', () => {
@@ -2004,7 +2012,9 @@ function onMsg(m) {
   if (!m || typeof m !== 'object') return;
   switch (m.t) {
     case 'start': if (m.arena && arenaById(m.arena).id !== A.id) buildArena(m.arena); startGame('online', -1, S.ranked ? 1 : ([1, 3, 5].includes(m.fmt) ? m.fmt : 1)); break;
-    case 'hello': if (RACKETS.some(r => r.id === m.rk)) setPaddle('op', racketById(m.rk), cleanTag(m.tag)); if (typeof m.name === 'string' && !S.ranked) S.oppName = m.name.slice(0, 20); refreshNames(); updateHud(); break;
+    case 'hello': if (RACKETS.some(r => r.id === m.rk)) setPaddle('op', racketById(m.rk), cleanTag(m.tag)); if (typeof m.name === 'string' && !S.ranked) S.oppName = m.name.slice(0, 20); refreshNames(); updateHud(); specInitAll(); break;
+    case 'cheer': if (CHEERS.includes(m.e)) showCheer(m.e); break;
+    case 'specs': showSpecCount(+m.n || 0); break;
     case 'pad':
       opp.tx = m.x; opp.ty = m.y; opp.tz = m.z;
       S.serveBall = m.b || null;
@@ -2039,6 +2049,7 @@ function onMsg(m) {
   }
 }
 function netTick(now) {
+  specTick(now);
   if (S.mode !== 'online' || !conn) return;
   if (now - lastPadSend > 33) {
     lastPadSend = now;
@@ -2424,7 +2435,7 @@ function ensureBallAir() {
 const INDOOR = { neon: 1, ginasio: 1, final: 1 };
 function asmrTick(dt) {
   if (!actx) return;
-  const t = actx.currentTime, live = !!S.mode && S.phase !== 'lobby' && S.phase !== 'over' && !RP.play && !S.paused;
+  const t = actx.currentTime, live = !!S.mode && S.mode !== 'spec' && S.phase !== 'lobby' && S.phase !== 'over' && !RP.play && !S.paused;
   // torcida quieta no saque e no rally
   const dk = S.phase === 'serve' || S.phase === 'rally' ? 0.45 : 1;
   if (VOL.crowdDuck && dk !== asmr.duck) { asmr.duck = dk; VOL.crowdDuck.gain.setTargetAtTime(dk, t, dk < 1 ? 0.6 : 0.15); }
@@ -2696,6 +2707,7 @@ function showOver() {
   const mine = S.score[String(S.mySide)], theirs = S.score[String(-S.mySide)];
   const gm = S.games[String(S.mySide)], go = S.games[String(-S.mySide)];
   const won = gm > go;
+  specOut({ t: 'sover', w: won ? S.mySide : -S.mySide, games: S.games, gameScores: S.gameScores });
   music.duck();
   $('overTitle').textContent = won ? 'Você venceu! 🏆' : (S.mode === 'solo' ? 'O computador venceu' : `${S.oppName || 'Seu amigo'} venceu`);
   $('overScore').textContent = S.format > 1
@@ -2790,7 +2802,7 @@ function botOnPoint(mine, reason, rally, winnerShot) {
 $('qcList').addEventListener('click', e => { const b = e.target.closest('button'); if (b) qcPick(+b.dataset.i); });
 $('btnChat').onclick = () => { qc.mode = qc.mode === 'closed' ? 'cats' : 'closed'; qcRender(); };
 window.addEventListener('keydown', e => {
-  if (S.phase === 'lobby' || e.repeat) return;
+  if (S.phase === 'lobby' || e.repeat || S.mode === 'spec') return;
   if (e.target && e.target.tagName === 'INPUT') return;
   if (e.key === 'Escape') { qc.mode = 'closed'; qcRender(); return; }
   const n = ['1', '2', '3', '4'].indexOf(e.key);
@@ -2890,6 +2902,8 @@ function startGame(mode, side, format = 1) {
     setTimeout(() => { if (S.mode === 'solo' && !S.tutorial) addChat('sys', `🤖 CPU ${botLv().name} · estilo ${BOT_STYLES[botStyle].name}`); }, 1300);
   }
   setTimeout(updateLockUI, 50);
+  if (mode === 'online') setTimeout(specInitAll, 200);
+  document.body.classList.toggle('online', mode === 'online');
   if (mode === 'solo') {                        // a CPU escolhe uma raquete diferente a cada partida
     const pool = RACKETS.filter(r => r.id !== myRacket.id);
     setPaddle('op', pool[(Math.random() * pool.length) | 0], 'CPU');
@@ -2901,14 +2915,17 @@ function startGame(mode, side, format = 1) {
 }
 function goMenu() {
   const wasOnline = S.mode === 'online';
+  const wasSpec = S.mode === 'spec';
   S.mode = null; S.phase = 'lobby'; S.ballVisible = false; S.ranked = null; S.oppName = null;
+  if (wasSpec) { document.body.classList.remove('spectating'); setPaddle('me', myRacket); setPaddle('op', RACKETS[0], ''); }
+  document.body.classList.remove('online'); renderSpecUI(); showSpecCount(0);
   stopEnd(); endReplay(false); RP.pending = false; RP.rec = null; S.paused = false; music.duck();
   S.tutorial = null; document.body.classList.remove('tutorial'); renderTutorial(); landMark.visible = false; renderProgress();
   if ($('btnTut') && store.get('pp_tut', '0') === '1') { $('btnTut').classList.remove('new'); $('btnTut').textContent = '🎓 Tutorial (1 min)'; }
   releaseMouse(); updateLockUI();
   if (typeof stopQueue === 'function') stopQueue(false);
   stopRhythm(); qc.mode = 'closed'; qcRender(); $('chatFeed').innerHTML = '';
-  if (wasOnline) cleanupNet();
+  if (wasOnline || wasSpec) cleanupNet();
   $('hud').classList.add('hidden'); $('over').classList.add('hidden');
   $('lobby').classList.remove('hidden'); showPanel('menu'); lobbyMsg('');
   if (typeof renderPick === 'function') renderPick();
@@ -3091,6 +3108,7 @@ function division(rating, games) {
 }
 function oppLabel() { return S.mode === 'solo' ? 'CPU' : (S.oppName || 'Amigo'); }
 function refreshNames() {
+  if (S.mode === 'spec') return;
   $('nameL').textContent = acct.profile ? acct.profile.name.toUpperCase().slice(0, 14) : 'VOCÊ';
   $('nameR').textContent = oppLabel().toUpperCase().slice(0, 14);
 }
@@ -3357,7 +3375,7 @@ function afterProfile() {
     store.set('pp_racket', r.id); setPaddle('me', r); pickState.rk = RACKETS.indexOf(r);
   }
   const tg = myTag();
-  if (tg !== lastTagShown) { lastTagShown = tg; setPaddle('me', myRacket, tg); makeThumbs(); }
+  if (tg !== lastTagShown) { lastTagShown = tg; if (S.mode !== 'spec') setPaddle('me', myRacket, tg); makeThumbs(); }
   if (typeof renderPick === 'function') renderPick();
 }
 
@@ -3620,6 +3638,7 @@ function initMenusUI() {
   const st = document.createElement('style');
   st.textContent = `
   #lobby .card { position: relative; }
+  #btnSpecHud { display: none; } body.online #btnSpecHud { display: inline-block; }
   #lockOverlay { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: rgba(5,3,10,.55); backdrop-filter: blur(3px); cursor: pointer; }
   #lockOverlay.hidden { display: none; }
   .lk-card { background: rgba(20,12,24,.92); border: 1px solid rgba(255,255,255,.12); border-radius: 18px; padding: 22px 24px; width: min(360px, 90vw); text-align: center; cursor: default; }
@@ -3700,6 +3719,9 @@ function initMenusUI() {
   $('btnSound').before(hg);
   const fb = h('button', { id: 'btnFull', title: 'Tela cheia', text: '⛶' }); fb.onclick = toggleFullscreen;
   hg.before(fb);
+  const sl = h('button', { id: 'btnSpecHud', title: 'Copiar link para assistir', text: '👀' });
+  sl.onclick = () => { if (!curRoom) return; const l = `${location.origin}${location.pathname}?ver=${curRoom}`; (navigator.clipboard ? navigator.clipboard.writeText(l) : Promise.reject()).then(() => toast('👀 Link para assistir copiado: mande para quem quiser ver'), () => toast(l)); };
+  fb.before(sl);
   const lk = h('div', { id: 'lockOverlay', class: 'hidden' });
   const lkGo = h('button', { class: 'btn', id: 'lkGo', text: 'Jogar' });
   const lkCfg = h('button', { class: 'btn ghost', text: '⚙️ Configurações' });
@@ -4373,6 +4395,254 @@ function initFeelUI() {
 }
 
 /* =====================================================================
+   MODO TELESPECTADOR
+   Quem cria a sala (anfitrião) transmite a partida para quem entrar pelo link
+   "assistir" (?ver=CÓDIGO): posição da bola e das raquetes ~30 vezes por segundo,
+   batidas, pontos e placar. O espectador só assiste (câmeras de TV) e pode mandar
+   reações (👏 🔥 😮 😂) que aparecem para todo mundo.
+   ===================================================================== */
+const SPEC_MAX = 12;
+const specs = [];                                    // anfitrião: conexões dos espectadores
+let specConn = null, specLastSnap = 0, specLastState = 0;
+const SPV = { buf: [], cam: 'tv', camT: 0, host: null, guest: null, over: false, pos: new THREE.Vector3(), look: new THREE.Vector3(), snapCam: true };
+const SPEC_CAMS = [['tv', '📺 TV'], ['p1', '🎯 Atrás de'], ['p2', '🎯 Atrás de'], ['top', '🚁 Aérea']];
+const specLink = code => `${location.origin}${location.pathname}?ver=${code}`;
+const specOut = m => { for (const c of specs) if (c.open) { try { c.send(m); } catch (e) { } } };
+
+/* ---------- lado do anfitrião ---------- */
+function addSpectator(c) {
+  if (!isHost || specs.length >= SPEC_MAX) { c.on('open', () => { try { c.send({ t: 'sfull' }); } catch (e) { } setTimeout(() => c.close(), 300); }); return; }
+  c.on('open', () => { specs.push(c); try { c.send(specInit()); } catch (e) { } specCountChanged(); });
+  c.on('data', m => { if (m && m.t === 'cheer' && CHEERS.includes(m.e)) { showCheer(m.e); send({ t: 'cheer', e: m.e }); specOut({ t: 'cheer', e: m.e }); } });
+  const gone = () => { const i = specs.indexOf(c); if (i >= 0) { specs.splice(i, 1); specCountChanged(); } };
+  c.on('close', gone); c.on('error', gone);
+}
+function specInit() {
+  return {
+    t: 'sinit', arena: A.id, fmt: S.format, phase: S.phase,
+    host: { rk: myRacket.id, tag: myTag(), name: acct.profile ? acct.profile.name : (myTag() || 'Jogador 1') },
+    guest: conn ? { rk: oppRacket.id, tag: oppTag, name: S.oppName || oppTag || 'Jogador 2' } : null,
+    score: S.score, games: S.games, gameNo: S.gameNo, gameScores: S.gameScores, ranked: !!S.ranked,
+  };
+}
+function specInitAll() { if (isHost && specs.length) { specOut(specInit()); send({ t: 'specs', n: specs.length }); } }
+function specCountChanged() { send({ t: 'specs', n: specs.length }); showSpecCount(specs.length); }
+function specTick(now) {
+  if (!isHost || !specs.length) return;
+  if (S.mode !== 'online') { if (now - specLastState > 2000) { specLastState = now; specOut({ t: 'sping' }); } return; }   // sala esperando: avisa que está viva
+  if (now - specLastSnap > 33) {
+    specLastSnap = now;
+    const r3 = a => a.map(v => +v.toFixed(3));
+    specOut({ t: 'snap', ph: S.phase, v: S.ballVisible ? 1 : 0, b: r3(S.ball.p), h: r3([me.x, me.y, me.z]), g: r3([opp.x, opp.y, opp.z]), c: trailColor.getHex() });
+  }
+  if (now - specLastState > 1000) { specLastState = now; specOut({ t: 'sstate', score: S.score, games: S.games, gameNo: S.gameNo, gameScores: S.gameScores, fmt: S.format }); }
+}
+function specEv(k, p, s, ex) { if (isHost && specs.length) specOut({ t: 'sev', k, p: p.map(v => +v.toFixed(3)), s: +(+s).toFixed(3), ...ex }); }
+
+/* ---------- reações (👏 🔥 😮 😂) ---------- */
+const CHEERS = ['👏', '🔥', '😮', '😂'];
+function showCheer(e) {
+  const el = document.createElement('div'); el.className = 'cheer'; el.textContent = e;
+  el.style.left = (70 + Math.random() * 22) + '%';
+  document.body.appendChild(el); setTimeout(() => el.remove(), 2200);
+  crowd.excite = Math.min(1, crowd.excite + 0.05);
+}
+function showSpecCount(n) {
+  const el = $('specCount'); if (!el) return;
+  el.textContent = n > 0 ? `👀 ${n} assistindo` : ''; el.classList.toggle('hidden', !n);
+}
+
+/* ---------- lado do espectador ---------- */
+function joinSpectate(code) {
+  if (typeof Peer === 'undefined') { lobbyMsg('Não carregou a biblioteca de rede. Recarregue a página.'); return; }
+  code = (code || '').trim().toUpperCase();
+  if (code.length < 4) { lobbyMsg('Digite o código da sala que você quer assistir.'); return; }
+  cleanupNet(); isHost = false;
+  showPanel('joining'); $('joinTxt').textContent = `Entrando para assistir a sala ${code}…`; lobbyMsg('');
+  peer = new Peer({ debug: 1 });
+  peer.on('open', () => {
+    const c = peer.connect(PEER_PREFIX + code, { metadata: { spec: true }, reliable: true });
+    specConn = c;
+    const to = setTimeout(() => { if (S.mode !== 'spec') { cleanupNet(); showPanel('menu'); lobbyMsg('Não achei essa partida. Confira o código ou peça um link novo.'); } }, 12000);
+    c.on('data', m => { if (m && m.t === 'sinit') clearTimeout(to); onSpecMsg(m); });
+    c.on('close', () => { if (S.mode === 'spec') { goMenu(); lobbyMsg('A transmissão terminou.'); } });
+    c.on('error', () => { });
+  });
+  peer.on('error', e => { if (S.mode !== 'spec') { showPanel('menu'); lobbyMsg(e && e.type === 'peer-unavailable' ? 'Partida não encontrada. Confira o código (ou peça um link novo).' : netErrorText(e)); } });
+}
+function startSpectating(m) {
+  if (m.arena && arenaById(m.arena).id !== A.id) buildArena(m.arena);
+  S.mode = 'spec'; S.mySide = 1; S.ranked = null; S.format = [1, 3, 5].includes(m.fmt) ? m.fmt : 1;
+  S.phase = m.phase === 'lobby' ? 'serve' : m.phase; S.ballVisible = false; S.streak = 0;
+  SPV.buf.length = 0; SPV.over = false; SPV.snapCam = true;
+  document.body.classList.add('spectating');
+  $('lobby').classList.add('hidden'); $('hud').classList.remove('hidden'); $('over').classList.add('hidden');
+  crowd.mySide = 1; if (A.crowdView) A.crowdView.setTeams(1);
+  specApplyPlayers(m);
+  if (m.score) Object.assign(S, { score: m.score, games: m.games || S.games, gameNo: m.gameNo || 1, gameScores: m.gameScores || [] });
+  $('ping').textContent = '';
+  music.duck(); updateHud(); renderSpecUI();
+  if (history.replaceState && location.search.includes('ver=')) history.replaceState(null, '', location.pathname);
+  addChat('sys', `👀 Você está assistindo${m.ranked ? ' uma ranqueada' : ''}. Reaja com os botões ou teclas 1 a 4.`);
+}
+function specApplyPlayers(m) {
+  SPV.host = m.host; SPV.guest = m.guest;
+  if (m.host && RACKETS.some(r => r.id === m.host.rk)) setPaddle('me', racketById(m.host.rk), cleanTag(m.host.tag));
+  if (m.guest && RACKETS.some(r => r.id === m.guest.rk)) setPaddle('op', racketById(m.guest.rk), cleanTag(m.guest.tag));
+  oppPaddleMesh.visible = myPaddleMesh.visible = true;
+  $('nameL').textContent = (m.host && m.host.name || 'JOGADOR 1').slice(0, 20).toUpperCase();
+  $('nameR').textContent = m.guest ? (m.guest.name || 'JOGADOR 2').slice(0, 20).toUpperCase() : 'AGUARDANDO…';
+  renderSpecUI();
+}
+const specName = sd => sd === 1 ? (SPV.host && SPV.host.name || 'Jogador 1') : (SPV.guest && SPV.guest.name || 'Jogador 2');
+function onSpecMsg(m) {
+  if (!m || typeof m !== 'object') return;
+  SPV.lastMsg = performance.now();
+  switch (m.t) {
+    case 'sinit': if (S.mode !== 'spec') startSpectating(m); else { specApplyPlayers(m); if (m.fmt) S.format = m.fmt; if (m.score) Object.assign(S, { score: m.score, games: m.games, gameNo: m.gameNo, gameScores: m.gameScores }); updateHud(); } break;
+    case 'sfull': cleanupNet(); showPanel('menu'); lobbyMsg('Essa partida já está com o máximo de espectadores.'); break;
+    case 'snap':
+      SPV.buf.push({ t: performance.now(), ...m });
+      if (SPV.buf.length > 40) SPV.buf.splice(0, SPV.buf.length - 40);
+      if (m.ph !== S.phase) {
+        if (m.ph === 'serve' && SPV.over) { SPV.over = false; S.streak = 0; }
+        S.phase = m.ph;
+      }
+      break;
+    case 'sstate': Object.assign(S, { score: m.score, games: m.games, gameNo: m.gameNo, gameScores: m.gameScores }); if (m.fmt) S.format = m.fmt; updateHud(); break;
+    case 'sev': {
+      if (m.k === 'hit') {
+        const rk = m.side === 1 ? myRacket : oppRacket;
+        sfx('hit', m.label, m.p, m.s, rk.sound);
+        S.lastLabel = m.label; S.streak = m.serve ? 0 : S.streak + 1;
+        fxHit(m.side, m.p, m.label); if (m.label) showLabel(m.label);
+        if (m.q === 'PERFEITO!') showQuality(`PERFEITO! (${specName(m.side)})`, true);
+      } else if (m.k === 'table') { sfx('table', null, m.p, m.s); fxBounce(m.p[0], m.p[2]); }
+      else if (m.k === 'net') { sfx('net', null, m.p, m.s); netHit({ x: m.p[0], y: m.p[1], s: m.s * 6, graze: !!m.graze }); }
+      break;
+    }
+    case 'spoint': {
+      Object.assign(S, { score: m.score, games: m.games || S.games });
+      if (!m.winner) { showMsg('LET', 'o saque tocou na rede, repete'); S.streak = 0; updateHud(); break; }
+      const rally = S.streak, sub = ({ out: 'bola fora', net: 'bola na rede', miss: 'não devolveu' }[m.reason] || '') + (rally >= 8 ? ` · rally de ${rally}!` : '');
+      showMsg(`Ponto de ${specName(m.winner)}`, sub);
+      fxPoint(m.winner === 1, rally, m.reason, m.shot || null, m.winner);
+      bumpScore(m.winner === 1 ? 'scoreL' : 'scoreR');
+      S.streak = 0; updateHud();
+      break;
+    }
+    case 'sgame': {
+      Object.assign(S, { games: m.games, gameScores: m.gameScores || S.gameScores });
+      const g = m.gs || { '1': 0, '-1': 0 };
+      showBanner(`GAME ${m.gameNo || S.gameNo} DE ${specName(m.w).toUpperCase()}`, `${g['1']} × ${g['-1']} · games ${m.games['1']} × ${m.games['-1']}`, 'win', 3200);
+      crowdReact('point', 0.9); celebrate(0.5); updateHud();
+      break;
+    }
+    case 'sover': {
+      SPV.over = true; Object.assign(S, { games: m.games || S.games, gameScores: m.gameScores || S.gameScores });
+      showBanner(`${specName(m.w).toUpperCase()} VENCEU!`, S.format > 1 ? `games ${S.games['1']} × ${S.games['-1']}` : `${S.score['1']} × ${S.score['-1']}`, 'win', 4500);
+      celebrate(1.2); crowdReact('point', 1); crowdEvent(m.w, 1, true);
+      setTimeout(() => { if (S.mode === 'spec' && SPV.over) addChat('sys', '👀 Fim de jogo. Se eles pedirem revanche, a transmissão continua aqui.'); }, 2500);
+      updateHud();
+      break;
+    }
+    case 'cheer': if (CHEERS.includes(m.e)) showCheer(m.e); break;
+    case 'specs': showSpecCount(m.n); break;
+  }
+}
+// desenha a partida ~100 ms atrás, interpolando entre as fotos recebidas (fica liso mesmo com a rede oscilando)
+const _sv = new THREE.Vector3(), _sl = new THREE.Vector3();
+function specFrame(dt, now) {
+  if (SPV.lastMsg && performance.now() - SPV.lastMsg > 9000) { goMenu(); lobbyMsg('A transmissão caiu (o anfitrião saiu ou a internet dele oscilou).'); return; }
+  const B = SPV.buf;
+  if (B.length) {
+    const tr = performance.now() - 110;
+    let i = B.length - 1; while (i > 0 && B[i - 1].t > tr) i--;
+    const a = B[Math.max(0, i - 1)], b = B[i], k = b.t > a.t ? clamp((tr - a.t) / (b.t - a.t), 0, 1) : 1;
+    const L = (x, y) => x + (y - x) * k;
+    const jump = Math.hypot(b.b[0] - a.b[0], b.b[1] - a.b[1], b.b[2] - a.b[2]) > 1.2;   // saque novo: não interpola
+    const src = jump ? b : null;
+    for (let j = 0; j < 3; j++) S.ball.p[j] = src ? src.b[j] : L(a.b[j], b.b[j]);
+    S.ball.v = [(b.b[0] - a.b[0]) / Math.max(0.016, (b.t - a.t) / 1000), (b.b[1] - a.b[1]) / Math.max(0.016, (b.t - a.t) / 1000), (b.b[2] - a.b[2]) / Math.max(0.016, (b.t - a.t) / 1000)];
+    S.ball.w = [0, 0, 0];
+    S.ballVisible = !!(k < 0.5 ? a.v : b.v);
+    me.x = L(a.h[0], b.h[0]); me.y = L(a.h[1], b.h[1]); me.z = L(a.h[2], b.h[2]);
+    opp.x = L(a.g[0], b.g[0]); opp.y = L(a.g[1], b.g[1]); opp.z = L(a.g[2], b.g[2]);
+    trailColor.setHex(b.c);
+  }
+  // câmeras de transmissão
+  const p = S.ball.p, cm = SPV.cam;
+  let fov = 44;
+  if (cm === 'tv') { _sv.set(3.25, TH + 1.35, clamp(p[2] * 0.3, -0.9, 0.9)); _sl.set(p[0] * 0.3, TH, clamp(p[2] * 0.5, -1.2, 1.2)); fov = 40; }
+  else if (cm === 'p1' || cm === 'p2') {
+    const sd = cm === 'p1' ? 1 : -1, px = cm === 'p1' ? me.x : opp.x;
+    _sv.set(px * 0.5, TH + 0.78, sd * (HL + 2.0)); _sl.set(p[0] * 0.25, TH + 0.05, -sd * 0.4); fov = 52;
+  } else { _sv.set(1.8, TH + 3.6, 2.4); _sl.set(0, TH, 0); fov = 48; }
+  const kk = SPV.snapCam ? 1 : Math.min(1, dt * 3.5);
+  SPV.pos.lerp(_sv, kk); SPV.look.lerp(_sl, SPV.snapCam ? 1 : Math.min(1, dt * 6)); SPV.snapCam = false;
+  camera.position.copy(SPV.pos); camera.lookAt(SPV.look);
+  if (cam.shake > 0 && cfg.shake) { const s = cam.shake * cam.shake * 0.015; camera.position.x += (Math.random() - 0.5) * s; camera.position.y += (Math.random() - 0.5) * s; cam.shake = Math.max(0, cam.shake - dt * 3); }
+  camera.fov = lerp(camera.fov, fov, Math.min(1, dt * 4)); camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+}
+function nextSpecCam() {
+  const i = SPEC_CAMS.findIndex(c => c[0] === SPV.cam);
+  SPV.cam = SPEC_CAMS[(i + 1) % SPEC_CAMS.length][0]; SPV.snapCam = true; renderSpecUI();
+}
+function sendCheer(e) {
+  if (S.mode !== 'spec' || !specConn || !specConn.open) return;
+  const now = performance.now(); SPV.cheerT = SPV.cheerT || [];
+  SPV.cheerT = SPV.cheerT.filter(t => now - t < 3000);
+  if (SPV.cheerT.length >= 4) return;                  // anti-spam
+  SPV.cheerT.push(now);
+  try { specConn.send({ t: 'cheer', e }); } catch (err) { }
+  showCheer(e);
+}
+function renderSpecUI() {
+  const el = $('specUI'); if (!el) return;
+  el.classList.toggle('hidden', S.mode !== 'spec');
+  if (S.mode !== 'spec') return;
+  const c = SPEC_CAMS.find(x => x[0] === SPV.cam);
+  $('spCam').textContent = `🎥 ${c[1]}${SPV.cam === 'p1' ? ' ' + specName(1) : SPV.cam === 'p2' ? ' ' + specName(-1) : ''} (C)`;
+}
+function initSpecUI() {
+  const st = document.createElement('style');
+  st.textContent = `
+  #specUI { position: fixed; left: 50%; bottom: 64px; white-space: nowrap; max-width: 96vw; transform: translateX(-50%); z-index: 13; display: flex; gap: 6px; align-items: center; background: rgba(12,8,18,.75); border: 1px solid rgba(255,255,255,.12); border-radius: 999px; padding: 6px 8px; }
+  #specUI.hidden { display: none; }
+  #specUI .live { font: 900 11px system-ui; letter-spacing: .12em; color: #fff; background: #ff2a55; border-radius: 999px; padding: 4px 9px; }
+  #specUI * { white-space: nowrap; }
+  #specUI button { border: 0; background: rgba(255,255,255,.1); color: #fff; border-radius: 999px; padding: 6px 10px; font: 800 13px system-ui; cursor: pointer; }
+  #specUI button.ch { font-size: 18px; padding: 3px 8px; }
+  #specCount { position: fixed; top: 64px; right: 14px; z-index: 12; font: 800 12px system-ui; color: #fff; background: rgba(0,0,0,.45); padding: 4px 10px; border-radius: 999px; }
+  #specCount.hidden { display: none; }
+  .cheer { position: fixed; bottom: 70px; z-index: 12; font-size: 34px; pointer-events: none; animation: cheerUp 2.2s ease-out forwards; }
+  @keyframes cheerUp { 0% { transform: translateY(0) scale(.6); opacity: 0; } 15% { opacity: 1; transform: translateY(-20px) scale(1.1); } 100% { transform: translateY(-260px) scale(1); opacity: 0; } }
+  body.spectating #btnChat, body.spectating #qcHint { display: none !important; }
+  .spec-row { display: flex; gap: 8px; margin-top: 8px; } .spec-row .btn { flex: 1; }`;
+  document.head.appendChild(st);
+  const live = h('span', { class: 'live', text: '● AO VIVO' });
+  const camB = h('button', { id: 'spCam' }); camB.onclick = nextSpecCam;
+  const chs = CHEERS.map(e => { const b = h('button', { class: 'ch', text: e, title: 'Reagir' }); b.onclick = () => sendCheer(e); return b; });
+  const out = h('button', { text: 'Sair' }); out.onclick = () => goMenu();
+  document.body.append(h('div', { id: 'specUI', class: 'hidden' }, live, camB, ...chs, out), h('div', { id: 'specCount', class: 'hidden' }));
+  // menu: assistir pelo código
+  const jb = $('btnJoin');
+  if (jb) { const w = h('button', { class: 'btn ghost', id: 'btnWatch', text: '👀 Assistir' }); w.onclick = () => { ensureAudio(); joinSpectate($('inCode').value); }; jb.after(w); }
+  // sala criada: link para quem só quer assistir
+  const cp = $('btnCopy');
+  if (cp) {
+    const w = h('button', { class: 'btn ghost', id: 'btnSpecLink', text: '👀 Copiar link para assistir' });
+    w.onclick = () => { const code = $('codeTxt').textContent.trim(); if (code.length < 4) return; navigator.clipboard && navigator.clipboard.writeText(specLink(code)).then(() => toast('Link para assistir copiado'), () => { }); };
+    cp.after(w);
+  }
+  window.addEventListener('keydown', e => {
+    if (S.mode !== 'spec' || e.repeat || /input|textarea/i.test((e.target && e.target.tagName) || '')) return;
+    if (e.key === 'c' || e.key === 'C') nextSpecCam();
+    const n = '1234'.indexOf(e.key); if (n >= 0) sendCheer(CHEERS[n]);
+  });
+}
+
+/* =====================================================================
    RENDER
    ===================================================================== */
 const _q = new THREE.Quaternion(), _ax = new THREE.Vector3();
@@ -4471,6 +4741,9 @@ function frame(now) {
     camera.position.set(Math.sin(a) * 5.2, 2.6 + Math.sin(a * 2) * 0.4, Math.cos(a) * 5.2);
     camera.lookAt(0, TH, 0);
     camera.fov = 50; camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+  } else if (S.mode === 'spec') {
+    specFrame(dt, now);
+    perfMonitor(rawDt);
   } else {
     updateCamera(dt, now);
     updateMyPaddle(dt);
@@ -4529,4 +4802,7 @@ const roomParam = new URLSearchParams(location.search).get('sala');
 if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
 
 initFeelUI();
-window.__pp = { swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+initSpecUI();
+const verParam = new URLSearchParams(location.search).get('ver');
+if (verParam && !roomParam) { $('inCode').value = verParam.toUpperCase(); joinSpectate(verParam); }
+window.__pp = { SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };

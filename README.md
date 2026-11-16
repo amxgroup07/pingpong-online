@@ -51,6 +51,17 @@ perde velocidade e pode cair logo depois da rede. Saque que toca na rede e entra
 
 **Mesa:** ~6% mais larga que a oficial (1,62 m).
 
+## Modo telespectador 👀
+Qualquer pessoa pode assistir uma partida online ao vivo, sem jogar:
+- **Link:** quem cria a sala tem o botão "👀 Copiar link para assistir" (e, durante o jogo, o botão 👀 no canto
+  para os dois jogadores). O link é `?ver=CÓDIGO`. Também dá para digitar o código no menu e clicar em "👀 Assistir".
+- **O que o espectador vê:** a partida ao vivo (bola e raquetes ~30 vezes por segundo, desenhadas 0,1 s atrás
+  para ficar liso), placar, games, sons das batidas, rótulos (SMASH, PERFEITO…), fim de game e de partida.
+- **Câmeras:** TV (lateral), atrás de cada jogador e aérea, trocando com o botão ou a tecla **C**.
+- **Reações:** 👏 🔥 😮 😂 (botões ou teclas 1 a 4) aparecem para os jogadores e para os outros espectadores.
+- Os jogadores veem "👀 N assistindo". Até 12 espectadores por partida (quem transmite é o computador de quem
+  criou a sala). Se o anfitrião sair, a transmissão acaba.
+
 ## Raquetes
 Escolha no menu (setas ‹ ›). Cada uma tem **velocidade**, **efeito** e **controle**, que mudam a física de verdade:
 velocidade encurta o tempo de voo da bola, efeito aumenta topspin, corte e curva lateral, e controle deixa a bola
