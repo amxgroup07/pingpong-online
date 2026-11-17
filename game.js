@@ -714,7 +714,7 @@ const ARENAS = [
     id: 'praia', name: 'Praia ao Pôr do Sol', emoji: '🏖️', tag: 'Torneio na areia, de frente pro mar',
     bg: 0xf09060, fog: [0xe89070, 28, 70], exposure: 1.18, dust: false, fireworks: true,
     light: { hemi: [0xffc49a, 0x5a3a3a, 0.7], main: [0xffe2c0, 24], rim: [0xff8a4a, 0xffb070, 0xff6a5a, 0xffc080], rimI: 5, fill: [0xff9a50, 1.1, 0, 2.2, -12] },
-    audio: { rev: 0.06, crowd: 0.6, amb: 'waves' },
+    audio: { rev: 0.06, crowd: 0.6, amb: 'breeze' },
     build() {
       skyDome(0x2a1d5c, 0xff8a4a, 0xffb27a, V3(0, 0.06, -1), 0xffd28a, 1.2);
       const sand = canvasTex(512, 512, (g, w, h) => { g.fillStyle = '#e2c08d'; g.fillRect(0, 0, w, h); noiseFill(g, w, h, 30000, 0.12, 1.5); for (let i = 0; i < 60; i++) { g.fillStyle = 'rgba(150,110,60,.12)'; g.beginPath(); g.ellipse(Math.random() * w, Math.random() * h, 6, 10, Math.random() * 3, 0, 6.3); g.fill(); } });
@@ -729,12 +729,11 @@ const ARENAS = [
             float streak = exp(-abs(p.x)*0.22) * smoothstep(-14.0, -45.0, p.y);
             float gl = pow(max(0.0, 0.5 + 0.5*w + 0.3*sin(p.x*7.0+uT*3.0+p.y*3.0)), 6.0);
             c += sun * streak * (0.25 + gl*1.8);
-            c += vec3(1.0) * smoothstep(-15.4, -14.6, p.y) * (0.5+0.5*sin(p.x*2.5+uT*1.6)) * 0.45;
             c = mix(c, hor, smoothstep(-38.0, -60.0, p.y));
             gl_FragColor = vec4(c, 1.0); }`
       })));
       sea.rotation.x = -Math.PI / 2; sea.position.set(0, 0.01, -14 - 23);
-      A.upd.push(t => { sea.material.uniforms.uT.value = t; });
+      sea.material.uniforms.uT.value = 2.0;              // mar parado: sem animação de onda
       // tablado de madeira embaixo da mesa
       const deck = canvasTex(512, 512, (g, w, h) => { for (let x = 0; x < w; x += 64) { g.fillStyle = `hsl(28,${35 + Math.random() * 10}%,${36 + Math.random() * 8}%)`; g.fillRect(x, 0, 62, h); } noiseFill(g, w, h, 5000, 0.08); });
       const dk = box(7.4, 0.08, 10.6, M({ map: repeatTex(deck, 3, 1), roughness: 0.8 }), 0, 0.04, 0); dk.receiveShadow = true;
@@ -2083,9 +2082,10 @@ function applyArenaAudio() {
   const src = actx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
   const lp = actx.createBiquadFilter(); lp.type = 'lowpass';
   const g = actx.createGain();
-  if (au.amb === 'waves') {
-    lp.frequency.value = 160; g.gain.value = 0.01;      // só um rumor de mar bem longe, por baixo das ondas
-    waveTimer = setTimeout(oneWave, 400);
+  if (au.amb === 'breeze') {                          // brisa bem leve, que vai e volta devagar
+    lp.frequency.value = 420; lp.Q.value = 0.2; g.gain.value = 0.006;
+    const lfo = actx.createOscillator(), lg = actx.createGain(); lfo.frequency.value = 0.06; lg.gain.value = 0.0035;
+    lfo.connect(lg).connect(g.gain); lfo.start(); ambNodes.push(lfo);
   } else {
     lp.frequency.value = 260; g.gain.value = 0.045;
   }
@@ -2093,7 +2093,7 @@ function applyArenaAudio() {
 }
 let waveTimer = 0;
 function oneWave() {                            // uma onda: cresce, quebra e a espuma vai sumindo na areia
-  if (!actx || !A.def || A.def.audio.amb !== 'waves') return;
+  if (!actx || !A.def || A.def.audio.amb !== 'waves') return;   // (sem uso: a praia agora tem brisa)
   const t = actx.currentTime + 0.05, rise = 1.4 + Math.random() * 1.4, dur = rise + 3 + Math.random() * 2.5;
   const peak = 0.018 + Math.random() * 0.014, pan = (Math.random() - 0.5) * 0.9;
   const out = actx.createStereoPanner ? actx.createStereoPanner() : actx.createGain();
@@ -3133,6 +3133,7 @@ async function refreshProfile() {
     renderProgress();
   }
   renderAccount(); refreshNames(); afterProfile();
+  if (typeof FR !== 'undefined') FR.lastPoll = -1e9;         // presença e convites logo depois do login
 }
 async function initAccount() {
   initAccountUI();
@@ -3167,7 +3168,7 @@ async function loginGoogle() {
   const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });
   if (error) lobbyMsg('Login com Google indisponível: ' + error.message);
 }
-async function logout() { const sb = await sbLoad(); if (sb) await sb.auth.signOut(); acct.user = null; acct.profile = null; renderAccount(); refreshNames(); afterProfile(); }
+async function logout() { const sb = await sbLoad(); if (sb) await sb.auth.signOut(); acct.user = null; acct.profile = null; FR.data = null; FR.incoming = 0; renderFrBadge(); renderAccount(); refreshNames(); afterProfile(); }
 async function editName() {
   const nm = prompt('Seu nome no jogo (3 a 20 caracteres):', acct.profile ? acct.profile.name : '');
   if (nm === null) return;
@@ -3761,6 +3762,7 @@ function initMenusUI() {
 function renderAccountExtras() {
   const p = acct.profile; if (!$('acctExtra')) return;
   $('acctTagBtn').textContent = `🏓 Sigla: ${myTag() || '—'} ✎`;
+  if ($('btnFriends')) $('btnFriends').classList.toggle('hidden', !p);
   $('btnAdmin').classList.toggle('hidden', !(p && p.admin));
   $('acctBan').classList.toggle('hidden', !(p && p.banned));
   if (p && p.banned) $('acctBan').textContent = `⛔ Conta suspensa da ranqueada${p.ban_reason ? ': ' + p.ban_reason : ''}`;
@@ -4643,6 +4645,215 @@ function initSpecUI() {
 }
 
 /* =====================================================================
+   AMIGOS: código de amigo, pedidos, quem está online, convite para jogar,
+   assistir a partida de um amigo e sugestões dos amigos da Steam.
+   Tudo passa por funções do servidor (o jogo nunca lê tabelas direto) e
+   nenhum SteamID é mostrado para outros jogadores.
+   ===================================================================== */
+const FR = { data: null, err: '', open: false, pollT: 0, lastPoll: -1e9, incoming: 0, invites: [], steam: null, busy: false };
+const presenceNow = () => S.mode === 'spec' ? 'assistindo' : queue.on ? 'fila' : S.mode ? 'jogando' : 'menu';
+async function socialPoll() {
+  if (!acct.user) return;
+  FR.lastPoll = performance.now();
+  try {
+    const r = await rpc('social_poll', { p_presence: presenceNow(), p_room: S.mode === 'online' && curRoom ? curRoom : null });
+    FR.err = '';
+    FR.incoming = r.incoming | 0;
+    for (const inv of r.invites || []) showInvite(inv);
+    renderFrBadge();
+  } catch (e) { FR.err = String(e.message || e); }
+}
+function socialTick() {                               // ~30 s normal, ~8 s com a tela de amigos aberta
+  const gap = FR.open ? 8000 : 30000;
+  if (acct.user && performance.now() - FR.lastPoll > gap) { socialPoll(); if (FR.open) loadFriends(); }
+}
+setInterval(socialTick, 2000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) FR.lastPoll = -1e9; });
+
+async function loadFriends() {
+  if (!acct.user) { FR.data = null; renderFriends(); return; }
+  try { FR.data = await rpc('friends_list'); FR.err = ''; FR.incoming = (FR.data.incoming || []).length; }
+  catch (e) { FR.err = /friends_list|does not exist|schema cache/i.test(e.message) ? 'Amigos indisponível agora: o servidor está sendo atualizado.' : 'Não consegui carregar seus amigos: ' + e.message; }
+  renderFriends(); renderFrBadge();
+}
+function openFriends() { ensureAudio(); FR.open = true; $('frScreen').classList.remove('hidden'); releaseMouse(); updateLockUI(); renderFriends(); loadFriends(); }
+function closeFriends() { FR.open = false; $('frScreen').classList.add('hidden'); updateLockUI(); }
+function renderFrBadge() {
+  const n = FR.incoming | 0, b = $('frBadge');
+  if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
+}
+const agoTxt = d => {
+  if (!d) return 'offline';
+  const s = (Date.now() - Date.parse(d)) / 1000;
+  return s < 3600 ? `visto há ${Math.max(1, Math.round(s / 60))} min` : s < 86400 ? `visto há ${Math.round(s / 3600)} h` : `visto há ${Math.round(s / 86400)} dia(s)`;
+};
+function avatarEl(f) {
+  if (f.avatar && /^https:\/\//.test(f.avatar)) { const i = h('img', { class: 'fr-av', src: f.avatar, alt: '', referrerpolicy: 'no-referrer' }); i.onerror = () => i.replaceWith(h('span', { class: 'fr-av', text: (f.name || '?')[0].toUpperCase() })); return i; }
+  return h('span', { class: 'fr-av', text: (f.name || '?')[0].toUpperCase() });
+}
+async function frAction(fn, args, okMsg) {
+  if (FR.busy) return; FR.busy = true;
+  try { const r = await rpc(fn, args); if (okMsg) toast(typeof okMsg === 'function' ? okMsg(r) : okMsg); await loadFriends(); return r ?? true; }
+  catch (e) {
+    const m = String(e.message || e);
+    const MSG = { 'codigo nao encontrado': 'Não achei esse código', 'esse e o seu proprio codigo': 'Esse é o seu próprio código 😄', 'voces ja sao amigos': 'Vocês já são amigos',
+      'muitos pedidos pendentes': 'Você tem pedidos demais esperando resposta', 'limite de amigos': 'Limite de amigos atingido', 'so da para convidar amigos': 'Só dá para convidar amigos',
+      'espere um pouco para convidar de novo': 'Espere uns segundos para convidar de novo' };
+    const k = Object.keys(MSG).find(x => m.includes(x));
+    toast(k ? MSG[k] : 'Não deu certo: ' + m);
+  } finally { FR.busy = false; }
+}
+async function inviteFriend(f) {
+  if (S.mode && S.mode !== 'online') { toast('Saia da partida atual para convidar'); return; }
+  if (S.mode === 'online') { toast('Você já está numa partida online'); return; }
+  if (!(isHost && peer && curRoom)) { createRoom(); }               // abre uma sala e espera o amigo nela
+  const room = curRoom;
+  const ok = await frAction('invite_friend', { p_to: f.id, p_room: room }, `Convite enviado para ${f.name}. Esperando ele entrar…`);
+  if (ok) closeFriends();
+}
+function watchFriend(f) { if (!f.room) return; closeFriends(); if (S.mode) goMenu(); joinSpectate(f.room); }
+
+let invTimer = 0;
+function showInvite(inv) {
+  if (!inv || !inv.room || !/^[A-Z0-9]{4,8}$/.test(inv.room)) return;
+  const el = $('invPop'); if (!el) return;
+  el.textContent = '';
+  const yes = h('button', { class: 'btn', text: 'Aceitar' }), no = h('button', { class: 'btn ghost', text: 'Agora não' });
+  yes.onclick = () => {
+    el.classList.add('hidden');
+    if (S.mode && !confirm('Sair da partida atual para jogar com seu amigo?')) return;
+    if (S.mode) goMenu();
+    $('inCode').value = inv.room; joinRoom(inv.room);
+  };
+  no.onclick = () => el.classList.add('hidden');
+  el.append(h('div', { class: 'inv-t' }, '🏓 ', h('b', { text: inv.name || 'Um amigo' }), ' te chamou para jogar'), h('div', { class: 'inv-b' }, yes, no));
+  el.classList.remove('hidden');
+  tone(880, 0.12, 0.05, 'sine'); tone(1320, 0.18, 0.04, 'sine', 0.12);
+  clearTimeout(invTimer); invTimer = setTimeout(() => el.classList.add('hidden'), 60000);
+}
+async function steamSuggestions() {
+  FR.steam = { loading: true }; renderFriends();
+  try {
+    const sb = await sbLoad(); const { data } = await sb.auth.getSession();
+    const r = await fetch(`${SB_URL}/functions/v1/steam-friends`, { method: 'POST', headers: { Authorization: `Bearer ${data.session.access_token}`, apikey: SB_KEY } });
+    const j = await r.json().catch(() => ({}));
+    FR.steam = j.error ? { error: { sem_chave: 'Essa função liga quando a chave da Steam Web API for cadastrada no servidor.', lista_privada: 'Sua lista de amigos da Steam está privada. Deixe-a pública nas configurações de privacidade da Steam para ver quem joga.', sem_steam: 'Entre com a Steam para ver seus amigos de lá.', login: 'Entre de novo na sua conta.' }[j.error] || 'Não consegui falar com a Steam agora.' } : { players: j.players || [] };
+  } catch (e) { FR.steam = { error: 'Não consegui falar com a Steam agora.' }; }
+  renderFriends();
+}
+function renderFriends() {
+  const box = $('frBody'); if (!box) return;
+  box.textContent = '';
+  if (!acct.user) {
+    box.append(h('p', { class: 'muted', text: 'Entre com a Steam (ou Google) para adicionar amigos, ver quem está online e chamar para jogar.' }));
+    const b = h('button', { class: 'b-steam-img' }, steamBtnImg()); b.onclick = loginSteam; box.append(b);
+    return;
+  }
+  if (FR.err && !FR.data) { box.append(h('p', { class: 'muted', text: FR.err })); return; }
+  const d = FR.data;
+  if (!d) { box.append(h('p', { class: 'muted', text: 'Carregando…' })); return; }
+  // meu código
+  const cp = h('button', { class: 'cf-save', text: 'Copiar' });
+  cp.onclick = () => navigator.clipboard && navigator.clipboard.writeText(d.code).then(() => toast('Código copiado'), () => toast(d.code));
+  box.append(h('div', { class: 'fr-code' }, h('span', {}, 'Seu código de amigo: ', h('b', { text: d.code || '—' })), cp));
+  // adicionar
+  const inp = h('input', { class: 'adm-q', placeholder: 'Código do amigo (ex.: K7P2QX)', maxlength: 30, autocomplete: 'off' });
+  const add = h('button', { class: 'cf-save', text: 'Adicionar' });
+  const go = () => { const c = inp.value.trim(); if (c.length < 4) return; frAction('friend_request', { p_code: c }, r => r.status === 'accepted' ? `Agora você e ${r.name} são amigos!` : `Pedido enviado para ${r.name}`); inp.value = ''; };
+  add.onclick = go; inp.onkeydown = e => { if (e.key === 'Enter') go(); };
+  box.append(h('div', { class: 'adm-search' }, inp, add));
+  // pedidos recebidos
+  if ((d.incoming || []).length) {
+    box.append(h('div', { class: 'cf-t', text: `Pedidos recebidos (${d.incoming.length})` }));
+    for (const f of d.incoming) {
+      const ok = h('button', { class: 'cf-save', text: 'Aceitar' }); ok.onclick = () => frAction('friend_respond', { p_from: f.id, p_accept: true }, `Agora você e ${f.name} são amigos!`);
+      const no = h('button', { class: 'adm-mini', text: 'Recusar' }); no.onclick = () => frAction('friend_respond', { p_from: f.id, p_accept: false });
+      box.append(h('div', { class: 'fr-row' }, avatarEl(f), h('div', { class: 'fr-info' }, h('b', { text: f.name }), h('small', { text: f.tag || '' })), h('div', { class: 'fr-act' }, ok, no)));
+    }
+  }
+  // amigos
+  box.append(h('div', { class: 'cf-t', text: `Amigos (${(d.friends || []).length})` }));
+  if (!(d.friends || []).length) box.append(h('p', { class: 'muted', text: 'Ninguém ainda. Mande seu código para os amigos ou adicione o código deles.' }));
+  for (const f of d.friends || []) {
+    const st = { menu: ['on', 'Online no menu'], jogando: ['play', 'Jogando'], assistindo: ['play', 'Assistindo'], fila: ['play', 'Na fila da ranqueada'], offline: ['off', agoTxt(f.last_seen)] }[f.presence] || ['off', 'offline'];
+    const act = h('div', { class: 'fr-act' });
+    if (f.presence === 'menu') { const b = h('button', { class: 'cf-save', text: 'Convidar' }); b.onclick = () => inviteFriend(f); act.append(b); }
+    if (f.presence === 'jogando' && f.room) { const b = h('button', { class: 'adm-mini', text: '👀 Assistir' }); b.onclick = () => watchFriend(f); act.append(b); }
+    const rm = h('button', { class: 'adm-mini fr-rm', title: 'Remover amigo', text: '✕' });
+    rm.onclick = () => { if (confirm(`Remover ${f.name} dos amigos?`)) frAction('friend_remove', { p_id: f.id }, `${f.name} removido`); };
+    act.append(rm);
+    box.append(h('div', { class: 'fr-row' }, avatarEl(f),
+      h('div', { class: 'fr-info' }, h('b', {}, f.name, ' ', h('span', { class: 'adm-chip', text: f.tag || '' })), h('small', { class: 'st-' + st[0], text: `● ${st[1]}${f.rating ? ` · ${f.rating} elo` : ''}` })), act));
+  }
+  // enviados
+  if ((d.outgoing || []).length) {
+    box.append(h('div', { class: 'cf-t', text: 'Pedidos enviados' }));
+    for (const f of d.outgoing) {
+      const c = h('button', { class: 'adm-mini', text: 'Cancelar' }); c.onclick = () => frAction('friend_remove', { p_id: f.id });
+      box.append(h('div', { class: 'fr-row' }, avatarEl(f), h('div', { class: 'fr-info' }, h('b', { text: f.name }), h('small', { text: 'esperando resposta' })), h('div', { class: 'fr-act' }, c)));
+    }
+  }
+  // amigos da Steam
+  if (acct.profile && acct.profile.steam) {
+    const sb = h('button', { class: 'btn ghost', text: '🎮 Amigos da Steam que jogam' }); sb.onclick = steamSuggestions;
+    box.append(h('div', { class: 'stack' }, sb));
+    if (FR.steam) {
+      if (FR.steam.loading) box.append(h('p', { class: 'muted', text: 'Perguntando para a Steam…' }));
+      else if (FR.steam.error) box.append(h('p', { class: 'muted', text: FR.steam.error }));
+      else if (!FR.steam.players.length) box.append(h('p', { class: 'muted', text: 'Nenhum amigo da Steam joga ainda. Chame eles! 😉' }));
+      else for (const p of FR.steam.players) {
+        const act = h('div', { class: 'fr-act' });
+        if (!p.rel) { const b = h('button', { class: 'cf-save', text: 'Adicionar' }); b.onclick = () => frAction('friend_request', { p_code: p.code }, `Pedido enviado para ${p.name}`).then(() => { p.rel = 'enviado'; renderFriends(); }); act.append(b); }
+        else act.append(h('small', { class: 'muted', text: { amigo: 'já é amigo', enviado: 'pedido enviado', recebido: 'te mandou pedido' }[p.rel] }));
+        box.append(h('div', { class: 'fr-row' }, avatarEl(p), h('div', { class: 'fr-info' }, h('b', { text: p.name }), h('small', { text: 'amigo na Steam' })), act));
+      }
+    }
+  }
+  box.append(h('p', { class: 'cf-note', text: 'Seus amigos veem seu nome, sigla, foto e se você está online ou jogando. Ninguém vê seu SteamID nem seu e-mail.' }));
+}
+// botão oficial "Sign in through Steam" (a Valve pede para usar a imagem dela no link de login)
+function steamBtnImg() {
+  const img = h('img', { src: 'https://community.fastly.steamstatic.com/public/images/signinthroughsteam/sits_01.png', alt: 'Sign in through Steam', referrerpolicy: 'no-referrer' });
+  img.onerror = () => img.replaceWith(h('span', { class: 'steam-fallback', text: 'Entrar com Steam' }));
+  return img;
+}
+function initFriendsUI() {
+  const st = document.createElement('style');
+  st.textContent = `
+  #frScreen .card { max-width: 520px; text-align: left; max-height: 92vh; overflow-y: auto; }
+  .fr-code { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: rgba(255,211,77,.1); border: 1px solid rgba(255,211,77,.3); border-radius: 12px; padding: 8px 12px; margin: 8px 0; }
+  .fr-code b { font-size: 18px; letter-spacing: .14em; color: #ffd34d; }
+  .fr-row { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .fr-av { width: 36px; height: 36px; border-radius: 50%; flex: none; object-fit: cover; display: grid; place-items: center; background: linear-gradient(135deg, #ff4f8b, #9a5cff); font-weight: 900; }
+  .fr-info { flex: 1; min-width: 0; display: flex; flex-direction: column; } .fr-info b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fr-info small { font-size: 12px; opacity: .7; } .fr-info .st-on { color: #2fd16b; opacity: 1; } .fr-info .st-play { color: #ffd34d; opacity: 1; }
+  .fr-act { display: flex; gap: 6px; align-items: center; } .fr-rm { opacity: .6; }
+  #frScreen .cf-t { margin-top: 12px; }
+  .fr-btn { position: relative; } #frBadge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; border-radius: 999px; background: #ff2a55; color: #fff; font-size: 11px; font-weight: 900; display: grid; place-items: center; padding: 0 4px; }
+  #frBadge.hidden { display: none; }
+  #invPop { position: fixed; top: 16px; right: 16px; z-index: 60; width: min(320px, 92vw); background: rgba(18,10,26,.95); border: 1px solid rgba(255,211,77,.45); border-radius: 16px; padding: 12px 14px; box-shadow: 0 10px 40px rgba(0,0,0,.5); animation: invIn .35s cubic-bezier(.2,1.5,.4,1); }
+  #invPop.hidden { display: none; } @keyframes invIn { from { transform: translateY(-20px); opacity: 0; } }
+  .inv-t { font-size: 15px; margin-bottom: 10px; } .inv-b { display: flex; gap: 8px; } .inv-b .btn { flex: 1; margin: 0; padding: 9px; }
+  .b-steam-img { border: 0; background: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center; }
+  .b-steam-img img { height: 35px; display: block; } .steam-fallback { background: linear-gradient(180deg, #2a475e, #171a21); color: #fff; padding: 9px 14px; border-radius: 4px; font-weight: 800; }
+  .acct-legal { font-size: 10.5px; opacity: .5; margin-top: 8px; line-height: 1.4; }`;
+  document.head.appendChild(st);
+  const scr = h('div', { id: 'frScreen', class: 'screen hidden' }); scr.style.zIndex = 44;
+  const x = h('button', { class: 'cf-x', 'aria-label': 'Fechar', text: '✕' }); x.onclick = closeFriends;
+  scr.append(h('div', { class: 'card' }, h('div', { class: 'cf-head' }, h('h2', { text: '👥 Amigos' }), x), h('div', { id: 'frBody' })));
+  scr.onclick = e => { if (e.target === scr) closeFriends(); };
+  document.body.append(scr, h('div', { id: 'invPop', class: 'hidden' }));
+  // cartão da conta: botão de amigos com contador de pedidos
+  const ex = $('acctExtra');
+  if (ex) { const b = h('button', { class: 'fr-btn', id: 'btnFriends' }, '👥 Amigos', h('span', { id: 'frBadge', class: 'hidden' })); b.onclick = openFriends; ex.prepend(b); }
+  // botão de login: imagem oficial da Steam + aviso de marca
+  const bs = $('btnSteam');
+  if (bs) { bs.className = 'b-steam-img'; bs.textContent = ''; bs.append(steamBtnImg()); bs.title = 'Entrar pela página oficial da Steam (nunca pedimos sua senha)'; }
+  const out = $('acctOut');
+  if (out) out.append(h('div', { class: 'acct-legal', text: 'O login abre a página oficial da Steam: nunca pedimos sua senha. Steam e o logotipo Steam são marcas da Valve Corporation. Ping Pong Online não é afiliado à Valve.' }));
+}
+
+/* =====================================================================
    RENDER
    ===================================================================== */
 const _q = new THREE.Quaternion(), _ax = new THREE.Vector3();
@@ -4803,6 +5014,7 @@ if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam
 
 initFeelUI();
 initSpecUI();
+initFriendsUI();
 const verParam = new URLSearchParams(location.search).get('ver');
 if (verParam && !roomParam) { $('inCode').value = verParam.toUpperCase(); joinSpectate(verParam); }
-window.__pp = { SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+window.__pp = { FR, loadFriends, openFriends, socialPoll, showInvite, SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };

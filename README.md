@@ -51,6 +51,18 @@ perde velocidade e pode cair logo depois da rede. Saque que toca na rede e entra
 
 **Mesa:** ~6% mais larga que a oficial (1,62 m).
 
+## Amigos e login Steam
+- **Amigos (👥 no cartão da conta):** cada conta tem um código de amigo de 6 letras. Adicione pelo código, aceite
+  ou recuse pedidos, veja quem está online, no menu, jogando ou assistindo, **convide para jogar** (abre uma sala e
+  o amigo recebe o convite na tela) e **assista** a partida de um amigo com um clique. Com a chave da Steam Web
+  API cadastrada, o botão "Amigos da Steam que jogam" mostra quem da sua lista da Steam já joga.
+- **Privacidade:** amigos veem só nome, sigla, foto e status. SteamID e e-mail nunca aparecem para outros jogadores.
+- **Login Steam (OpenID 2.0), como a Valve pede:** botão oficial "Sign in through Steam"; a senha é digitada só
+  na página da Steam; a resposta é conferida com a própria Steam (`check_authentication`); conferimos também o
+  endereço de retorno exato, a origem oficial, os campos assinados, o formato do SteamID e o nonce (cada resposta
+  só vale uma vez e por 5 minutos, tabela `openid_nonces`). Aviso de marca: Steam é marca da Valve; o jogo não é
+  afiliado à Valve. Chamadas à Steam Web API ficam bem abaixo do limite de 100 mil por dia.
+
 ## Modo telespectador 👀
 Qualquer pessoa pode assistir uma partida online ao vivo, sem jogar:
 - **Link:** quem cria a sala tem o botão "👀 Copiar link para assistir" (e, durante o jogo, o botão 👀 no canto
@@ -111,8 +123,8 @@ e no PERFEITO o jogo congela uma fração de segundo, a câmera dá um tranco e 
 ## Sons de detalhe
 Vento da raquete cortando o ar (mais longo e agudo quanto mais rápido o gesto, mesmo sem acertar a bola),
 toque leve com som abafado, smash com estalo e "tum" grave, ar passando pela bola rápida ou com muito efeito,
-tênis rangendo no chão nos cenários fechados e a torcida fazendo silêncio no saque e no rally. Na praia, ondas
-que crescem, quebram e somem na areia. A música toca no menu e some na partida (dá para manter em ⚙️).
+tênis rangendo no chão nos cenários fechados e a torcida fazendo silêncio no saque e no rally. Na praia, uma brisa leve
+(o mar fica parado). A música toca no menu e some na partida (dá para manter em ⚙️).
 
 ## Chat rápido (estilo Rocket League)
 Durante o jogo, aperte **1 a 4** para escolher a categoria e de novo **1 a 4** para a frase
