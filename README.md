@@ -45,20 +45,23 @@ Antes do menu aparece a tela de entrada, com o mesmo fundo do menu:
 - **Supabase (painel):** em *Authentication → URL Configuration*, o *Site URL* deve ser `https://pingpong-online.vercel.app` (e ela na lista de *Redirect URLs*). O envio de email padrão do Supabase só manda para membros da equipe e tem limite baixo por hora: para jogadores reais, configure um SMTP próprio (*Authentication → Emails → SMTP*, ex.: Resend) ou desligue *Confirm email* em *Sign In / Providers → Email*.
 
 ## Efeitos de botão
-Todos os botões sobem de leve e ganham um brilho que passa no hover, encolhem um pouco no clique e soltam uma "onda" de luz a partir do ponto clicado. Os botões do menu lateral piscam e o texto "respira" no clique. Sons baixinhos de hover e clique seguem o volume de **Avisos** (UI). Quem usa "reduzir movimento" no sistema fica sem as animações de brilho.
+Todos os botões e cartões reagem ao hover e ao clique (subida leve, brilho, "onda" de luz no ponto clicado) com sons baixinhos que seguem o volume de **Avisos**. Quem usa "reduzir movimento" no sistema fica sem as animações de brilho.
 
-## Menu principal (estilo Rocket League)
+## Menu principal (visual estilo FUT)
 
-- Fundo com a arte do jogo (`assets/menu-bg.jpg`; no celular, a versão menor), com zoom lento, um brilho que passa de vez em quando e faíscas subindo.
-- Barra de cima: logo, perfil (avatar, nome, nível com barra de XP, elo/colocação), 👥 amigos (com contador de pedidos), 🏆 ranking e ⚙️ configurações.
-- Navegação à esquerda com botões inclinados animados e um "tic" baixinho no hover: **JOGAR**, **GARAGEM**, Amigos, Ranking, Tutorial, Configurações e Início. No celular vira uma faixa horizontal no topo.
-- **Início:** conta e missões do dia, com o botão "Jogar agora".
-- **Jogar:** três cartões (Com amigo, Ranqueada, Treino com o nível da CPU) e, embaixo, cenário e formato da partida.
-- **Garagem:** raquete, bolinha e sigla.
-- **ESC** volta para o Início. Sala de espera, "conectando" e fila da ranqueada aparecem como janelas por cima do fundo.
-- Enquanto o menu está na tela, o 3D não é desenhado (economiza bateria e placa de vídeo).
-- **Música do menu:** `assets/menu-music.mp3`, em loop, como som ambiente baixo. Entra e sai devagar; toca mais baixa na tela de resultado e some durante a partida (a menos que "música durante a partida" esteja ligada). Segue o volume de **Música** nas configurações e o 🔇.
-- Os arquivos do menu vêm do jsDelivr fixados no commit (`ASSET_SHA` no `game.js`); se trocar a imagem ou a música, faça o commit e atualize esse SHA.
+- **Barra do clube** em cima: escudo com o avatar, nome, divisão/nível, elo, XP total, estrelas das missões do dia, tempo até as missões novas com barra de progresso, nível, 👥, 🏆 e ⚙️.
+- **Abas:** Início, Jogar, Garagem, Amigos, Ranking e Ajustes (**Q**/**E** trocam de aba).
+- **Título grande** em itálico condensado, subtítulo e etiquetas (missões e tempo).
+- **Cartões grandes** com ilustração, faixa laranja, nome embaixo e rodapé com 3 números; o cartão escolhido sobe e ganha a barra laranja. Bloqueado = cinza com cadeado no canto.
+- **Telas:** Início (Jogar, Missões, Perfil, Amigos) · Jogar (Com amigo, Ranqueada, Treino, Tutorial + cenário e formato) · Com amigo (Criar sala, Entrar com código, Assistir) · Ranqueada (Procurar partida, Ranking) · Treino (um cartão por nível da CPU: clicou, começa) · Garagem (raquetes em cartões com velocidade/efeito/controle, bolinhas e sigla) · Missões · Perfil.
+- Ajustes, Amigos, Ranking e Painel admin abrem no mesmo visual, em tela cheia (**Esc** fecha).
+- Teclado: setas movem, **Enter** escolhe, **Esc** volta.
+- Fonte: Barlow Condensed (licença OFL), carregada do jsDelivr.
+- Fundo: a arte do jogo (`assets/menu-bg.jpg`; no celular, a versão menor) com zoom lento. Enquanto o menu está na tela, o 3D não é desenhado.
+- **Música do menu:** `assets/menu-music.mp3`, em loop e baixa, só depois do login; mais baixa na tela de resultado e some na partida (a menos que "música durante a partida" esteja ligada). Segue o volume de **Música** e o 🔇. Os arquivos vêm do jsDelivr fixados no commit (`ASSET_SHA` no `game.js`).
+
+## Avatares
+24 avatares desenhados no próprio jogo (SVG, sem arquivos): 14 jogadores e 10 mascotes (bolinha, raposa, panda, gato, robô, tigre, coruja, dragão, rei da mesa e chama). Tigre (nível 5), Coruja (8), Dragão (10), Rei da mesa (15) e Chama (20) liberam por nível. Escolha em **Perfil** (clique no escudo ou no cartão Perfil); quem entrou pela Steam pode voltar para a foto da Steam. O avatar fica salvo na conta (`profiles.avatar_pick`, função `set_avatar`) e aparece na barra do clube, nos amigos e no ranking.
 
 ## Como jogar com o amigo
 1. Abra o site → **Criar sala e chamar um amigo**.

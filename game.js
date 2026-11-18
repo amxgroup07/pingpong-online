@@ -3099,7 +3099,7 @@ async function refreshProfile() {
     else if (prog.xp > (acct.profile.xp | 0)) rpc('sync_xp', { p_xp: prog.xp }).catch(() => { });
     renderProgress();
   }
-  renderAccount(); refreshNames(); afterProfile();
+  renderAccount(); refreshNames(); afterProfile(); if (window.__futReady) renderTopProfile();
   if (typeof FR !== 'undefined') FR.lastPoll = -1e9;         // presença e convites logo depois do login
 }
 async function initAccount() {
@@ -3244,7 +3244,7 @@ async function openRanking() {
       const dvs = document.createElement('span'); dvs.className = 'rk-div'; dvs.textContent = `${dv.icon} ${dv.name}`; dvs.style.color = dv.color;
       const el = document.createElement('span'); el.className = 'rk-elo'; el.textContent = r.rating;
       const wl = document.createElement('span'); wl.className = 'rk-wl'; wl.textContent = `${r.wins}V ${r.losses}D`;
-      row.append(pos, nm, dvs, el, wl); list.appendChild(row);
+      row.append(pos, avatarNode(r.avatar, r.name, 'rk-av'), nm, dvs, el, wl); list.appendChild(row);
     });
   } catch (e) { list.innerHTML = '<p class="muted">Não consegui carregar o ranking agora.</p>'; }
 }
@@ -4232,6 +4232,7 @@ function renderProgress() {
   for (const m of ms) list.append(h('div', { class: 'pg-m' + (m.paid ? ' done' : '') },
     h('span', { text: (m.paid ? '✅ ' : '🎯 ') + m.t }), h('b', { text: m.paid ? `+${m.xp}` : `${m.n}/${m.need}` })));
   if (typeof renderPick === 'function') renderPick();
+  if (window.__futReady) renderTopProfile();
 }
 // resultado no fim: XP ganho e barra de nível
 function overXp(won) {
@@ -4655,17 +4656,14 @@ function closeFriends() { FR.open = false; $('frScreen').classList.add('hidden')
 function renderFrBadge() {
   const n = FR.incoming | 0, b = $('frBadge');
   if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
-  const b2 = $('rlFrBadge'); if (b2) { b2.textContent = n; b2.classList.toggle('hidden', !n); }
+  const b2 = $('fuFrBadge'); if (b2) { b2.textContent = n; b2.classList.toggle('hidden', !n); }
 }
 const agoTxt = d => {
   if (!d) return 'offline';
   const s = (Date.now() - Date.parse(d)) / 1000;
   return s < 3600 ? `visto há ${Math.max(1, Math.round(s / 60))} min` : s < 86400 ? `visto há ${Math.round(s / 3600)} h` : `visto há ${Math.round(s / 86400)} dia(s)`;
 };
-function avatarEl(f) {
-  if (f.avatar && /^https:\/\//.test(f.avatar)) { const i = h('img', { class: 'fr-av', src: f.avatar, alt: '', referrerpolicy: 'no-referrer' }); i.onerror = () => i.replaceWith(h('span', { class: 'fr-av', text: (f.name || '?')[0].toUpperCase() })); return i; }
-  return h('span', { class: 'fr-av', text: (f.name || '?')[0].toUpperCase() });
-}
+function avatarEl(f) { return avatarNode(f.avatar, f.name, 'fr-av'); }
 async function frAction(fn, args, okMsg) {
   if (FR.busy) return; FR.busy = true;
   try { const r = await rpc(fn, args); if (okMsg) toast(typeof okMsg === 'function' ? okMsg(r) : okMsg); await loadFriends(); return r ?? true; }
@@ -4829,14 +4827,111 @@ function initFriendsUI() {
 }
 
 /* =====================================================================
-   MENU PRINCIPAL (estilo Rocket League)
-   Fundo com a arte do jogo, navegação à esquerda com botões inclinados,
-   painéis que deslizam e barra de perfil em cima. Reaproveita os mesmos
-   botões e campos de antes (mesmos ids), só reorganizados.
+   AVATARES (desenhados em SVG, sem arquivos): jogadores e mascotes
+   Guardados no perfil como "av:<id>". Alguns liberam por nível.
    ===================================================================== */
-const UI = { page: 'home' };
+const AV_SKIN = ['#ffdcc2', '#f3c19d', '#d9a07a', '#b97a52', '#8d5634', '#5e3a22'];
+const AV_PLAYERS = [
+  // id, fundo, pele, cabelo, cor do cabelo, camisa, extra
+  ['p1', ['#ff6b1a', '#b8340b'], 1, 'short', '#2a1a10', '#1f6fff', ''],
+  ['p2', ['#2a7fff', '#123d99'], 3, 'afro', '#1a0f08', '#ff3d5a', 'band'],
+  ['p3', ['#9a5cff', '#4b1fa8'], 0, 'long', '#e8b04a', '#ffffff', ''],
+  ['p4', ['#1fc46b', '#0b6e3a'], 4, 'spiky', '#111111', '#ffd34d', ''],
+  ['p5', ['#ff3d7f', '#9c0f45'], 2, 'bun', '#3a1f12', '#1f2a44', ''],
+  ['p6', ['#ffd34d', '#c98a0f'], 1, 'cap', '#1f6fff', '#1f6fff', ''],
+  ['p7', ['#14b8c4', '#0a5f6a'], 5, 'bald', '#000', '#ff6b1a', 'glasses'],
+  ['p8', ['#ff8a3d', '#a8420c'], 0, 'pony', '#a23a1a', '#14b8c4', ''],
+  ['p9', ['#3a4a6b', '#141a2a'], 3, 'short', '#0f0f0f', '#ffffff', 'band'],
+  ['p10', ['#e83f3f', '#7a1010'], 2, 'spiky', '#f2d06b', '#111827', ''],
+  ['p11', ['#6b7cff', '#2b3299'], 4, 'long', '#1a0f08', '#ff3d7f', ''],
+  ['p12', ['#22c55e', '#166534'], 0, 'cap', '#e83f3f', '#ffffff', 'glasses'],
+  ['p13', ['#f472b6', '#9d174d'], 5, 'afro', '#0f0f0f', '#ffd34d', ''],
+  ['p14', ['#0ea5e9', '#075985'], 1, 'bun', '#c0c0c0', '#9a5cff', ''],
+];
+const AV_MASCOTS = [
+  ['bola', ['#1f6fff', '#0b2f7a'], 'Bolinha'], ['raposa', ['#14b8c4', '#0a4f5a'], 'Raposa'], ['panda', ['#22c55e', '#0f5130'], 'Panda'],
+  ['gato', ['#ff6b1a', '#9a3108'], 'Gato'], ['robo', ['#9a5cff', '#3b1782'], 'Robô'], ['tigre', ['#111827', '#000000'], 'Tigre'],
+  ['coruja', ['#e83f3f', '#6e0f0f'], 'Coruja'], ['dragao', ['#ffd34d', '#a0640a'], 'Dragão'], ['rei', ['#7c3aed', '#2e1065'], 'Rei da mesa'], ['fogo', ['#0f172a', '#000000'], 'Chama'],
+];
+const AV_LV = { 'av:tigre': 5, 'av:coruja': 8, 'av:dragao': 10, 'av:rei': 15, 'av:fogo': 20 };
+const AVATARS = [...AV_PLAYERS.map(a => ({ id: 'av:' + a[0], kind: 'p', a })), ...AV_MASCOTS.map(a => ({ id: 'av:' + a[0], kind: 'm', a, name: a[2] }))];
+const avCache = {};
+function avBg(c, id) { return `<defs><linearGradient id="g${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c[0]}"/><stop offset="1" stop-color="${c[1]}"/></linearGradient></defs><rect width="64" height="64" fill="url(#g${id})"/><path d="M-6 52 C18 40 40 62 70 38 L70 70 L-6 70Z" fill="rgba(0,0,0,.18)"/><circle cx="50" cy="12" r="18" fill="rgba(255,255,255,.08)"/>`; }
+function avPlayer([id, bg, sk, hair, hc, shirt, extra]) {
+  const s = AV_SKIN[sk], sd = 'rgba(0,0,0,.14)';
+  const back = hair === 'long' ? `<path d="M17 28 C15 46 20 52 22 54 L42 54 C44 52 49 46 47 28Z" fill="${hc}"/>` : hair === 'afro' ? `<circle cx="32" cy="24" r="18" fill="${hc}"/>` : hair === 'pony' ? `<path d="M44 22 C54 26 54 40 47 46 C49 38 47 30 42 26Z" fill="${hc}"/>` : '';
+  const top = {
+    short: `<path d="M19 28 C17 13 47 11 45 28 C43 21 38 18 32 18 C26 18 21 21 19 28Z" fill="${hc}"/>`,
+    spiky: `<path d="M18 28 L19 16 L24 19 L26 11 L31 17 L35 10 L38 17 L43 13 L43 20 L46 20 L45 28 C42 21 37 19 32 19 C27 19 22 21 18 28Z" fill="${hc}"/>`,
+    long: `<path d="M18 30 C16 12 48 12 46 30 C44 22 39 18 32 18 C25 18 20 22 18 30Z" fill="${hc}"/>`,
+    bun: `<circle cx="32" cy="11" r="6" fill="${hc}"/><path d="M19 28 C17 14 47 14 45 28 C43 21 38 18 32 18 C26 18 21 21 19 28Z" fill="${hc}"/>`,
+    cap: `<path d="M18 25 C18 12 46 12 46 25Z" fill="${hc}"/><path d="M30 24 L54 25 C54 28 46 28 30 27Z" fill="${hc}"/><path d="M18 25 L46 25" stroke="rgba(0,0,0,.25)" stroke-width="1.5"/><circle cx="32" cy="14" r="1.6" fill="rgba(255,255,255,.6)"/>`,
+    afro: `<path d="M18 26 C18 14 46 14 46 26 C42 21 38 20 32 20 C26 20 22 21 18 26Z" fill="${hc}"/>`,
+    pony: `<path d="M19 28 C17 13 47 11 45 28 C43 21 38 18 32 18 C26 18 21 21 19 28Z" fill="${hc}"/>`,
+    bald: `<path d="M22 19 C26 15 38 15 42 19" stroke="rgba(255,255,255,.25)" stroke-width="2" fill="none"/>`,
+  }[hair] || '';
+  const ex = extra === 'band' ? `<rect x="18" y="20" width="28" height="4.5" rx="2" fill="#ffffff"/><rect x="18" y="20" width="28" height="1.6" rx="1" fill="${shirt}"/>`
+    : extra === 'glasses' ? `<g fill="none" stroke="#111" stroke-width="1.6"><circle cx="27" cy="29.5" r="3.6"/><circle cx="37" cy="29.5" r="3.6"/><path d="M30.6 29.5 L33.4 29.5"/></g>` : '';
+  return `${back}<path d="M6 66 C8 50 19 45 32 45 C45 45 56 50 58 66Z" fill="${shirt}"/><path d="M26 45 L32 53 L38 45" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="2"/><path d="M6 66 C8 54 14 50 20 48" stroke="rgba(0,0,0,.18)" stroke-width="3" fill="none"/>
+  <rect x="27.5" y="37" width="9" height="9" rx="3" fill="${s}"/><rect x="27.5" y="40" width="9" height="3" fill="${sd}"/>
+  <circle cx="19" cy="30" r="3.2" fill="${s}"/><circle cx="45" cy="30" r="3.2" fill="${s}"/>
+  <ellipse cx="32" cy="28.5" rx="13" ry="14" fill="${s}"/>${top}
+  <path d="M24.5 25.2 L29 24.6 M35 24.6 L39.5 25.2" stroke="${hair === 'bald' ? '#3a2a20' : hc}" stroke-width="1.6" stroke-linecap="round"/>
+  <circle cx="27" cy="29.6" r="1.8" fill="#1a1a1a"/><circle cx="37" cy="29.6" r="1.8" fill="#1a1a1a"/><circle cx="27.6" cy="29" r=".6" fill="#fff"/><circle cx="37.6" cy="29" r=".6" fill="#fff"/>
+  <circle cx="24" cy="34" r="2" fill="rgba(255,90,90,.18)"/><circle cx="40" cy="34" r="2" fill="rgba(255,90,90,.18)"/>
+  <path d="M28.5 35.4 Q32 38.6 35.5 35.4" stroke="#7a2e1e" stroke-width="1.6" fill="none" stroke-linecap="round"/>${ex}`;
+}
+function avMascot(id) {
+  const eyes = (y = 30, c = '#111', dx = 6) => `<circle cx="${32 - dx}" cy="${y}" r="2.4" fill="${c}"/><circle cx="${32 + dx}" cy="${y}" r="2.4" fill="${c}"/><circle cx="${32.8 - dx}" cy="${y - .8}" r=".8" fill="#fff"/><circle cx="${32.8 + dx}" cy="${y - .8}" r=".8" fill="#fff"/>`;
+  switch (id) {
+    case 'bola': return `<circle cx="32" cy="34" r="20" fill="#ff8a1f"/><path d="M14 30 C24 36 40 36 50 30" stroke="#fff3e0" stroke-width="2" fill="none"/><circle cx="25" cy="25" r="5" fill="rgba(255,255,255,.35)"/>${eyes(36)}<path d="M27 42 Q32 46 37 42" stroke="#3a1800" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+    case 'raposa': return `<path d="M14 14 L24 30 L18 34Z M50 14 L40 30 L46 34Z" fill="#ff7a1a"/><path d="M17 18 L22 28 L19 30Z M47 18 L42 28 L45 30Z" fill="#3a1500"/><path d="M14 30 C16 18 48 18 50 30 C50 44 40 52 32 54 C24 52 14 44 14 30Z" fill="#ff7a1a"/><path d="M14 34 C20 36 26 42 32 54 C24 52 15 45 14 34Z M50 34 C44 36 38 42 32 54 C40 52 49 45 50 34Z" fill="#fff"/>${eyes(32)}<ellipse cx="32" cy="44" rx="3" ry="2.2" fill="#111"/>`;
+    case 'panda': return `<circle cx="17" cy="18" r="7" fill="#111"/><circle cx="47" cy="18" r="7" fill="#111"/><circle cx="32" cy="34" r="20" fill="#fff"/><ellipse cx="24.5" cy="32" rx="5" ry="6.5" transform="rotate(25 24.5 32)" fill="#111"/><ellipse cx="39.5" cy="32" rx="5" ry="6.5" transform="rotate(-25 39.5 32)" fill="#111"/><circle cx="25" cy="31.5" r="1.8" fill="#fff"/><circle cx="39" cy="31.5" r="1.8" fill="#fff"/><ellipse cx="32" cy="41" rx="3" ry="2" fill="#111"/><path d="M29 45 Q32 47 35 45" stroke="#111" stroke-width="1.5" fill="none"/>`;
+    case 'gato': return `<path d="M13 12 L26 22 L15 30Z M51 12 L38 22 L49 30Z" fill="#9aa3b5"/><path d="M16 17 L23 22 L17 26Z M48 17 L41 22 L47 26Z" fill="#ff9ab8"/><ellipse cx="32" cy="34" rx="19" ry="18" fill="#9aa3b5"/><path d="M26 18 L28 24 M32 17 L32 23 M38 18 L36 24" stroke="#6b7385" stroke-width="2"/>${eyes(32, '#1f6b2e')}<path d="M30 39 L34 39 L32 41.5Z" fill="#ff7aa2"/><path d="M32 41.5 Q29 45 27 43 M32 41.5 Q35 45 37 43" stroke="#333" stroke-width="1.2" fill="none"/><path d="M12 38 L24 39 M12 43 L24 41 M52 38 L40 39 M52 43 L40 41" stroke="rgba(255,255,255,.75)" stroke-width="1"/>`;
+    case 'robo': return `<path d="M32 8 L32 15" stroke="#cbd5e1" stroke-width="2.5"/><circle cx="32" cy="7" r="3" fill="#ff3d5a"/><rect x="13" y="15" width="38" height="36" rx="10" fill="#cbd5e1"/><rect x="17" y="23" width="30" height="14" rx="6" fill="#0f172a"/><circle cx="25" cy="30" r="3" fill="#38e1ff"/><circle cx="39" cy="30" r="3" fill="#38e1ff"/><rect x="24" y="42" width="16" height="3" rx="1.5" fill="#64748b"/><rect x="9" y="27" width="4" height="10" rx="2" fill="#94a3b8"/><rect x="51" y="27" width="4" height="10" rx="2" fill="#94a3b8"/>`;
+    case 'tigre': return `<circle cx="17" cy="17" r="6" fill="#ff8a1f"/><circle cx="47" cy="17" r="6" fill="#ff8a1f"/><circle cx="17" cy="17" r="3" fill="#ffd9b0"/><circle cx="47" cy="17" r="3" fill="#ffd9b0"/><ellipse cx="32" cy="34" rx="20" ry="19" fill="#ff8a1f"/><path d="M32 16 L30 24 M24 18 L26 24 M40 18 L38 24 M13 32 L20 33 M13 38 L19 37 M51 32 L44 33 M51 38 L45 37" stroke="#111" stroke-width="2.4" stroke-linecap="round"/><ellipse cx="32" cy="43" rx="10" ry="7" fill="#fff4e6"/>${eyes(31)}<path d="M29.5 40 L34.5 40 L32 43Z" fill="#111"/>`;
+    case 'coruja': return `<path d="M14 16 L22 24 L16 28Z M50 16 L42 24 L48 28Z" fill="#7a4a2a"/><ellipse cx="32" cy="36" rx="19" ry="19" fill="#9a6235"/><ellipse cx="32" cy="44" rx="11" ry="9" fill="#e8c9a0"/><circle cx="24.5" cy="31" r="7.5" fill="#fff"/><circle cx="39.5" cy="31" r="7.5" fill="#fff"/><circle cx="24.5" cy="31" r="3.6" fill="#111"/><circle cx="39.5" cy="31" r="3.6" fill="#111"/><circle cx="25.6" cy="29.8" r="1.2" fill="#fff"/><circle cx="40.6" cy="29.8" r="1.2" fill="#fff"/><path d="M29.5 37 L34.5 37 L32 42Z" fill="#ffb02e"/>`;
+    case 'dragao': return `<path d="M18 22 L10 6 L24 17Z M46 22 L54 6 L40 17Z" fill="#fff2b0"/><ellipse cx="32" cy="34" rx="19" ry="18" fill="#1fa463"/><path d="M14 30 L8 28 L14 36Z M50 30 L56 28 L50 36Z" fill="#147a49"/><ellipse cx="32" cy="44" rx="12" ry="7" fill="#7be0a8"/><circle cx="28" cy="43" r="1.4" fill="#0b4a2b"/><circle cx="36" cy="43" r="1.4" fill="#0b4a2b"/><path d="M22 29 L29 31 M42 29 L35 31" stroke="#0b4a2b" stroke-width="2"/>${eyes(33, '#ffd34d')}<path d="M24 20 L26 24 L28 19 L30 24 L32 18 L34 24 L36 19 L38 24 L40 20" stroke="#ffd34d" stroke-width="1.6" fill="none"/>`;
+    case 'rei': return `${avPlayer(['k', ['#000', '#000'], 2, 'short', '#2a1a10', '#7c3aed', ''])}<path d="M19 17 L22 6 L27 13 L32 4 L37 13 L42 6 L45 17Z" fill="#ffd34d" stroke="#a0640a" stroke-width="1"/><circle cx="32" cy="10" r="1.6" fill="#ff3d5a"/><circle cx="23" cy="12" r="1.2" fill="#38e1ff"/><circle cx="41" cy="12" r="1.2" fill="#38e1ff"/>`;
+    case 'fogo': return `<path d="M32 6 C40 18 52 22 50 38 C49 50 40 58 32 58 C24 58 15 50 14 38 C13 28 20 24 22 14 C26 22 30 22 32 6Z" fill="#ff5a1a"/><path d="M32 22 C37 30 44 33 43 42 C42 50 37 54 32 54 C27 54 22 50 21 42 C21 36 25 33 27 27 C29 31 31 30 32 22Z" fill="#ffb02e"/><path d="M32 36 C35 40 38 42 37 47 C36 51 34 52 32 52 C30 52 28 51 27 47 C27 44 29 42 32 36Z" fill="#fff2b0"/>${eyes(40, '#3a0f00', 5)}`;
+  }
+  return '';
+}
+function avatarURI(id) {
+  if (avCache[id]) return avCache[id];
+  const av = AVATARS.find(a => a.id === id); if (!av) return null;
+  const k = id.slice(3).replace(/[^a-z0-9]/g, '');
+  const inner = av.kind === 'p' ? avPlayer(av.a) : avMascot(av.a[0]);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">${avBg(av.a[1], k)}${inner}</svg>`;
+  return (avCache[id] = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg));
+}
+const avLocked = id => !isVip() && levelOf(prog.xp).lvl < (AV_LV[id] || 1);
+function myAvatar() { const p = acct.profile; return (p && p.avatar) || store.get('pp_avatar', '') || ''; }
+// elemento de avatar para qualquer lugar (perfil, amigos, ranking)
+function avatarNode(value, name, cls = 'av') {
+  const ini = ((name || '?').trim()[0] || '?').toUpperCase();
+  if (value && value.startsWith('av:') && avatarURI(value)) return h('img', { class: cls, src: avatarURI(value), alt: '' });
+  if (value && /^https:\/\//.test(value)) { const i = h('img', { class: cls, src: value, alt: '', referrerpolicy: 'no-referrer' }); i.onerror = () => i.replaceWith(h('span', { class: cls + ' ini', text: ini })); return i; }
+  return h('span', { class: cls + ' ini', text: ini });
+}
+async function setAvatar(id) {
+  if (id && avLocked(id)) { toast(`🔒 Libera no nível ${AV_LV[id]}`); return; }
+  store.set('pp_avatar', id || '');
+  if (acct.profile) acct.profile.avatar = id || acct.profile.avatar_steam || null;
+  if (typeof renderFut === 'function') renderFut();
+  if (!acct.user) return;
+  try { await rpc('set_avatar', { p_pick: id || null }); toast('Avatar salvo ✔'); refreshProfile(); }
+  catch (e) { toast('Avatar salvo neste aparelho'); console.warn('avatar', e); }
+}
 
-// som de interface: "tic" no hover e "toc" no clique (bem baixinho)
+/* =====================================================================
+   MENU PRINCIPAL (estilo FUT): barra do clube em cima, abas, título grande,
+   cartões grandes com rodapé de números e dicas de teclas embaixo.
+   Toda tela aberta pelo menu usa o mesmo visual. Os botões antigos
+   continuam existindo (escondidos) e são acionados por aqui.
+   ===================================================================== */
+const ASSET_FONT = 'https://cdn.jsdelivr.net/npm/@fontsource/barlow-condensed@5.3.0/';
+const UI = { page: 'home', stack: [], sel: 0 };
 let uiHoverT = 0;
 function uiTick(kind) {
   if (!actx || !VOL.ui) return;
@@ -4846,220 +4941,416 @@ function uiTick(kind) {
   g.gain.setValueAtTime(kind === 'hover' ? 0.012 : 0.035, t); g.gain.exponentialRampToValueAtTime(0.0001, t + (kind === 'hover' ? 0.04 : 0.09));
   o.connect(g).connect(VOL.ui); o.start(t); o.stop(t + 0.1);
 }
-function showPage(id) {
-  if (UI.page === id) return;
-  const prev = $('pg-' + UI.page), next = $('pg-' + id); if (!next) return;
-  UI.page = id;
-  document.querySelectorAll('.rl-nav button').forEach(b => b.classList.toggle('on', b.dataset.p === id));
-  if (prev) { prev.classList.remove('in'); prev.classList.add('out'); setTimeout(() => prev.classList.remove('out'), 260); }
-  next.classList.add('in');
-  $('rlCrumb').textContent = { home: 'INÍCIO', play: 'JOGAR', garage: 'GARAGEM' }[id] || '';
-  if (id === 'garage' && typeof renderPick === 'function') renderPick();
+// ---------- ilustrações dos cartões (SVG) ----------
+const ART = {
+  amigo: `<g transform="translate(150 118)"><circle r="70" fill="url(#gl)"/><g transform="rotate(-28)"><ellipse cx="-38" cy="-8" rx="34" ry="38" fill="#e8273f"/><ellipse cx="-38" cy="-8" rx="28" ry="32" fill="#ff4b5f"/><rect x="-46" y="26" width="16" height="44" rx="6" fill="#c8915a"/></g><g transform="rotate(28)"><ellipse cx="38" cy="-8" rx="34" ry="38" fill="#1f5fe0"/><ellipse cx="38" cy="-8" rx="28" ry="32" fill="#3d82ff"/><rect x="30" y="26" width="16" height="44" rx="6" fill="#c8915a"/></g><circle cx="0" cy="-52" r="11" fill="#fff"/><circle cx="-3" cy="-55" r="4" fill="#fff" opacity=".9"/></g>`,
+  rank: `<g transform="translate(150 120)"><circle r="72" fill="url(#gl)"/><path d="M-36 -52 L36 -52 L32 -10 C28 14 12 24 0 26 C-12 24 -28 14 -32 -10Z" fill="#ffc23a"/><path d="M-36 -44 C-62 -44 -62 -6 -30 -2 M36 -44 C62 -44 62 -6 30 -2" stroke="#ffc23a" stroke-width="8" fill="none"/><rect x="-8" y="24" width="16" height="22" fill="#e0a21c"/><rect x="-30" y="46" width="60" height="14" rx="3" fill="#ffc23a"/><path d="M-18 -40 L-14 -14" stroke="#fff6cf" stroke-width="6" stroke-linecap="round" opacity=".7"/><text y="-16" text-anchor="middle" font-size="26" font-weight="900" fill="#8a5a00" font-family="Barlow Condensed,system-ui">1</text></g>`,
+  treino: `<g transform="translate(150 118)"><circle r="72" fill="url(#gl)"/><path d="M0 -70 L0 -54" stroke="#cbd5e1" stroke-width="5"/><circle cy="-74" r="7" fill="#ff6b1a"/><rect x="-52" y="-54" width="104" height="92" rx="24" fill="#d6dde8"/><rect x="-40" y="-34" width="80" height="38" rx="14" fill="#0f172a"/><circle cx="-18" cy="-15" r="8" fill="#38e1ff"/><circle cx="18" cy="-15" r="8" fill="#38e1ff"/><rect x="-22" y="16" width="44" height="8" rx="4" fill="#64748b"/><rect x="-64" y="-20" width="12" height="30" rx="6" fill="#94a3b8"/><rect x="52" y="-20" width="12" height="30" rx="6" fill="#94a3b8"/></g>`,
+  tutorial: `<g transform="translate(150 125)"><circle r="72" fill="url(#gl)"/><path d="M-80 30 C-40 -70 40 -70 80 30" stroke="#fff" stroke-width="4" stroke-dasharray="2 12" stroke-linecap="round" fill="none" opacity=".75"/><circle cx="0" cy="-45" r="12" fill="#fff"/><path d="M-60 -6 L0 -32 L60 -6 L0 20Z" fill="#1d2433"/><path d="M-36 6 L-36 34 C-20 46 20 46 36 34 L36 6 L0 20Z" fill="#2b3447"/><path d="M52 -2 L52 32" stroke="#ffc23a" stroke-width="4"/><circle cx="52" cy="36" r="6" fill="#ffc23a"/></g>`,
+  criar: `<g transform="translate(150 118)"><circle r="72" fill="url(#gl)"/><rect x="-58" y="-50" width="116" height="84" rx="12" fill="#1d2433" stroke="#3d82ff" stroke-width="4"/><text y="-2" text-anchor="middle" font-size="34" font-weight="900" fill="#fff" font-family="Barlow Condensed,system-ui" letter-spacing="6">K7P2Q</text><rect x="-34" y="12" width="68" height="10" rx="5" fill="#3d82ff" opacity=".6"/><circle cx="46" cy="44" r="22" fill="#ff6b1a"/><path d="M46 32 L46 56 M34 44 L58 44" stroke="#fff" stroke-width="6" stroke-linecap="round"/></g>`,
+  entrar: `<g transform="translate(150 118)"><circle r="72" fill="url(#gl)"/><path d="M-50 -50 L18 -50 L18 50 L-50 50Z" fill="#1d2433" stroke="#64748b" stroke-width="4"/><circle cx="6" cy="2" r="4" fill="#ffc23a"/><path d="M-6 0 L60 0 M40 -18 L60 0 L40 18" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/></g>`,
+  assistir: `<g transform="translate(150 118)"><circle r="72" fill="url(#gl)"/><path d="M-70 0 C-40 -46 40 -46 70 0 C40 46 -40 46 -70 0Z" fill="#f8fafc"/><circle r="26" fill="#1f5fe0"/><circle r="12" fill="#0f172a"/><circle cx="-7" cy="-8" r="6" fill="#fff"/></g>`,
+  ranking: `<g transform="translate(150 128)"><circle cy="-10" r="72" fill="url(#gl)"/><rect x="-24" y="-40" width="48" height="80" fill="#ffc23a"/><rect x="-72" y="-10" width="48" height="50" fill="#cbd5e1"/><rect x="24" y="6" width="48" height="34" fill="#d08a4a"/><text y="-12" text-anchor="middle" font-size="30" font-weight="900" fill="#8a5a00" font-family="Barlow Condensed,system-ui">1</text><text x="-48" y="18" text-anchor="middle" font-size="24" font-weight="900" fill="#475569" font-family="Barlow Condensed,system-ui">2</text><text x="48" y="30" text-anchor="middle" font-size="22" font-weight="900" fill="#7a3f12" font-family="Barlow Condensed,system-ui">3</text></g>`,
+  amigos: `<g transform="translate(150 122)"><circle r="72" fill="url(#gl)"/><circle cx="-26" cy="-22" r="22" fill="#f3c19d"/><path d="M-66 50 C-62 10 10 10 14 50Z" fill="#3d82ff"/><circle cx="30" cy="-14" r="20" fill="#b97a52"/><path d="M-6 54 C-2 18 62 18 66 54Z" fill="#ff6b1a"/></g>`,
+  ajustes: `<g transform="translate(150 118)"><circle r="72" fill="url(#gl)"/><g fill="#cbd5e1">${[0, 45, 90, 135, 180, 225, 270, 315].map(a => `<rect x="-9" y="-62" width="18" height="24" rx="4" transform="rotate(${a})"/>`).join('')}<circle r="44"/></g><circle r="18" fill="#1d2433"/></g>`,
+  missoes: `<g transform="translate(150 118)"><circle r="72" fill="url(#gl)"/><circle r="52" fill="none" stroke="#fff" stroke-width="10" opacity=".9"/><circle r="32" fill="none" stroke="#ff6b1a" stroke-width="10"/><circle r="12" fill="#fff"/><path d="M8 -8 L62 -62" stroke="#ffc23a" stroke-width="6"/><path d="M62 -62 L50 -60 L60 -50Z M62 -62 L70 -74 L74 -58Z" fill="#ffc23a"/></g>`,
+};
+let svgN = 0;
+const uniq = str => { const n = ++svgN; return str.replace(/id="(gl|sw)"/g, (m, k) => `id="${k}${n}"`).replace(/url\(#(gl|sw)\)/g, (m, k) => `url(#${k}${n})`); };
+function artSVG(key, accent = '#3d82ff') {
+  return uniq(`<svg class="fu-svg" viewBox="0 0 300 240" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><radialGradient id="gl"><stop offset="0" stop-color="${accent}" stop-opacity=".55"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient></defs>${ART[key] || ''}</svg>`);
 }
-function renderTopProfile() {
-  const p = acct.profile, L = levelOf(prog.xp);
-  $('rlLvl').textContent = L.lvl;
-  $('rlXpBar').style.width = `${Math.round(L.cur / L.need * 100)}%`;
-  $('rlName').textContent = p ? p.name : 'Visitante';
-  $('rlSub').textContent = p ? (p.games >= 10 ? `${division(p.rating, p.games).name} · ${p.rating} elo` : `Colocação ${p.games || 0}/10 · ${p.rating} elo`) : 'Entre para salvar seu progresso';
-  const av = $('rlAv'); av.textContent = '';
-  if (p && p.avatar && /^https:\/\//.test(p.avatar)) { const i = h('img', { src: p.avatar, alt: '', referrerpolicy: 'no-referrer' }); i.onerror = () => { av.textContent = (p.name || '?')[0].toUpperCase(); }; av.append(i); }
-  else av.textContent = (p ? p.name : '?')[0].toUpperCase();
-  const fb = $('rlFr'); if (fb) fb.classList.toggle('dim', !p);
-  const b = $('rlFrBadge'); if (b) { const n = FR.incoming | 0; b.textContent = n; b.classList.toggle('hidden', !n); }
+const SWOOSH = `<svg class="fu-swoosh" viewBox="0 0 300 240" preserveAspectRatio="none" aria-hidden="true"><path d="M-20 200 C70 150 150 60 330 20 L330 46 C170 84 90 170 -20 232Z" fill="url(#sw)"/><defs><linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="#ff6b1a" stop-opacity=".0"/><stop offset=".35" stop-color="#ff6b1a" stop-opacity=".85"/><stop offset="1" stop-color="#ff9a3c" stop-opacity=".95"/></linearGradient></defs></svg>`;
+// ---------- dados das páginas ----------
+function missionsInfo() { const ms = dailyMissions(); return { ms, done: ms.filter(m => m.paid || m.n >= m.need).length }; }
+function resetIn() { const n = new Date(), m = new Date(n); m.setHours(24, 0, 0, 0); const s = Math.max(0, (m - n) / 1000) | 0; return `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min`; }
+const DIFF_COL = { facil: '#22c55e', medio: '#ffc23a', dificil: '#ff6b1a', pro: '#e8273f' };
+function tile(o) { return o; }
+function futPage(id) {
+  const p = acct.profile, L = levelOf(prog.xp), mi = missionsInfo();
+  const elo = p ? p.rating : 1000, dv = p ? division(p.rating, p.games) : division(1000, 0);
+  const fmtName = { 1: 'Duelo', 3: 'MD3', 5: 'MD5' }[pickState.fmt];
+  const chips = [['star', `${mi.done}/3 MISSÕES`], ['time', resetIn()]];
+  switch (id) {
+    case 'home': return { title: 'Início', sub: `Bem-vindo de volta${p ? ', ' + p.name : ''}. Escolha onde quer jogar hoje.`, chips, tiles: [
+      { title: 'Jogar', art: artSVG('amigo', '#ff6b1a'), wide: true, foot: [['Formato', fmtName], ['Cenário', ARENAS[pickState.ar].name], ['CPU', BOT_LV[pickState.diff].name]], go: () => futGo('play') },
+      { title: 'Missões', art: artSVG('missoes', '#ff6b1a'), foot: [['Completas', `${mi.done}/3`], ['Nível', L.lvl], ['XP', `${L.cur}/${L.need}`, 1]], go: () => futGo('missions') },
+      { title: 'Perfil', art: futAvatarArt(), foot: [['Elo', elo], ['Divisão', dv.name.replace('Colocação', 'Coloc.')], ['Vitórias', p ? p.wins : 0]], go: () => futGo('profile') },
+      { title: 'Amigos', art: artSVG('amigos', '#3d82ff'), foot: [['Pedidos', FR.incoming | 0], ['Código', (p && p.friend_code) || '—'], ['Convites', (FR.invites || []).length]], go: () => openFriends(), badge: FR.incoming ? `${FR.incoming} NOVO${FR.incoming > 1 ? 'S' : ''}` : '' },
+    ] };
+    case 'play': return { title: 'Jogar', sub: 'Online com amigos, ranqueada valendo elo ou treino contra a CPU.', chips, tiles: [
+      { title: 'Com amigo', art: artSVG('amigo', '#3d82ff'), foot: [['Sala', 'Link'], ['Formato', fmtName], ['Assistir', 'Sim']], go: () => futGo('friend') },
+      { title: 'Ranqueada', art: artSVG('rank', '#ffc23a'), foot: [['Elo', elo], ['Divisão', dv.name.replace('Colocação', 'Coloc.')], ['V / D', p ? `${p.wins}/${p.losses}` : '0/0']], go: () => futGo('ranked') },
+      { title: 'Treino', art: artSVG('treino', '#38e1ff'), foot: [['CPU', BOT_LV[pickState.diff].name], ['XP', `×${BOT_LV[pickState.diff].xp}`], ['Formato', fmtName]], go: () => futGo('train') },
+      { title: 'Tutorial', art: artSVG('tutorial', '#ffc23a'), foot: [['Tempo', '1 min'], ['Bônus', store.get('pp_tut', '0') === '1' ? 'Feito' : '+200', 1], ['Passos', 7]], go: () => startTutorial() },
+    ], opts: true };
+    case 'friend': return { title: 'Com amigo', crumb: 'Jogar', sub: 'Crie uma sala e mande o link, entre com o código ou só assista.', chips, tiles: [
+      { title: 'Criar sala', art: artSVG('criar', '#ff6b1a'), foot: [['Formato', fmtName], ['Cenário', ARENAS[pickState.ar].emoji], ['Link', 'WhatsApp']], go: () => $('btnCreate').click() },
+      { title: 'Entrar', art: 'code', foot: [['Código', '5 letras'], ['Raquete', myRacket.name], ['Sigla', myTag() || '—']], go: () => { const i = $('inCode'); if (i.value.trim().length >= 4) $('btnJoin').click(); else i.focus(); }, code: 'join' },
+      { title: 'Assistir', art: artSVG('assistir', '#3d82ff'), foot: [['Código', 'da sala'], ['Câmeras', 4], ['Torcida', '👏🔥']], go: () => { const i = $('inCode'); if (i.value.trim().length >= 4) $('btnWatch').click(); else { i.focus(); toast('Digite o código da sala no cartão "Entrar"'); } } },
+    ], opts: true };
+    case 'ranked': return { title: 'Ranqueada', crumb: 'Jogar', sub: 'Fila automática com gente do seu nível. 1 game de 11, vale elo e divisão.', chips, tiles: [
+      { title: 'Procurar partida', art: artSVG('rank', '#ffc23a'), wide: true, foot: [['Elo', elo], ['Divisão', dv.name.replace('Colocação', 'Coloc.')], ['Posição', p && p.games ? `#${p.rank}` : '—']], go: () => $('btnRanked').click() },
+      { title: 'Ranking', art: artSVG('ranking', '#ffc23a'), foot: [['Temporada', 1], ['Top', 50], ['Você', p && p.games ? `#${p.rank}` : '—']], go: () => openRanking() },
+    ] };
+    case 'train': return { title: 'Treino', crumb: 'Jogar', sub: 'Escolha o nível da CPU. Quanto mais difícil, mais XP por partida.', chips, tiles: Object.entries(BOT_LV).map(([k, v], i) => (
+      { title: v.name, art: futCpuArt(k, i), foot: [['XP', `×${v.xp}`], ['Reflexo', '▮'.repeat(i + 1) + '▯'.repeat(3 - i)], ['Erros', ['Muitos', 'Alguns', 'Poucos', 'Raros'][i]]], sel: pickState.diff === k, go: () => { pickState.diff = k; store.set('pp_diff', k); renderPick(); $('btnSolo').click(); } })), opts: true };
+    case 'garage': return { title: 'Garagem', sub: 'Sua raquete, a bolinha e a sigla gravada na borracha.', chips, tiles: RACKETS.filter(isListed).map(r => {
+      const lk = !isUnlocked(r), i = RACKETS.indexOf(r);
+      return { title: r.name, art: futRacketArt(r), foot: [['Velocidade', r.speed], ['Efeito', r.spin], ['Controle', r.ctrl]], small: true, sel: myRacket.id === r.id, badge: myRacket.id === r.id ? 'EQUIPADA' : '',
+        locked: lk ? lockText(r) : '', go: () => { pickState.rk = i; if (isUnlocked(r)) { store.set('pp_racket', r.id); setPaddle('me', r); toast(`${r.name} equipada`); } renderPick(); renderFut(); } };
+    }), balls: true };
+    case 'missions': return { title: 'Missões', sub: 'Três missões novas todo dia. Cada uma dá XP para subir de nível e liberar bolinhas e avatares.', chips, tiles: mi.ms.map(m => (
+      { title: m.t, art: futMissionArt(m), foot: [['Progresso', `${Math.min(m.n, m.need)}/${m.need}`], ['Recompensa', `${m.xp} XP`, 1], ['Status', m.paid ? 'Feita ✔' : 'Aberta']], small: true, sel: m.paid, go: () => futGo('play') })) };
+    case 'profile': return { title: 'Perfil', sub: 'Escolha seu avatar, nome e sigla. Seus amigos e o ranking veem o avatar.', chips, tiles: [], profile: true };
+  }
+  return { title: '', tiles: [] };
+}
+function futAvatarArt() { const v = myAvatar(), p = acct.profile; const n = avatarNode(v, p ? p.name : '?', 'fu-bigav'); return n; }
+function futCpuArt(k, i) {
+  return uniq(`<svg class="fu-svg" viewBox="0 0 300 240" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><radialGradient id="gl"><stop offset="0" stop-color="${DIFF_COL[k]}" stop-opacity=".6"/><stop offset="1" stop-color="${DIFF_COL[k]}" stop-opacity="0"/></radialGradient></defs>${ART.treino.replace(/#38e1ff/g, DIFF_COL[k])}<g transform="translate(232 40)">${[0, 1, 2, 3].map(j => `<rect x="${j * 13}" y="${30 - j * 9}" width="9" height="${12 + j * 9}" rx="2" fill="${j <= i ? DIFF_COL[k] : 'rgba(255,255,255,.18)'}"/>`).join('')}</g></svg>`);
+}
+function futRacketArt(r) {
+  const c = '#' + (r.look.color >>> 0).toString(16).padStart(6, '0');
+  const d = h('div', { class: 'fu-rk', style: `--rc:${c}` });
+  if (thumbs[r.id]) d.append(h('img', { src: thumbs[r.id], alt: '' })); else setTimeout(() => { if (UI.page === 'garage') renderFut(); }, 400);
+  return d;
+}
+function futMissionArt(m) {
+  const pct = Math.min(1, m.n / m.need), C = 2 * Math.PI * 46;
+  return uniq(`<svg class="fu-svg" viewBox="0 0 300 240" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><radialGradient id="gl"><stop offset="0" stop-color="#ff6b1a" stop-opacity=".45"/><stop offset="1" stop-color="#ff6b1a" stop-opacity="0"/></radialGradient></defs><circle cx="150" cy="112" r="80" fill="url(#gl)"/><circle cx="150" cy="112" r="46" fill="none" stroke="rgba(255,255,255,.15)" stroke-width="12"/><circle cx="150" cy="112" r="46" fill="none" stroke="${m.paid ? '#22c55e' : '#ff6b1a'}" stroke-width="12" stroke-linecap="round" stroke-dasharray="${C * pct} ${C}" transform="rotate(-90 150 112)"/><text x="150" y="124" text-anchor="middle" font-size="34" font-weight="900" fill="#fff" font-family="Barlow Condensed,system-ui">${m.paid ? '✔' : `${Math.min(m.n, m.need)}/${m.need}`}</text></svg>`);
+}
+// ---------- navegação ----------
+const TABS = [['home', 'Início'], ['play', 'Jogar'], ['garage', 'Garagem'], ['friends', 'Amigos'], ['ranking', 'Ranking'], ['settings', 'Ajustes']];
+const TAB_OF = { friend: 'play', ranked: 'play', train: 'play', missions: 'home', profile: 'home' };
+function futTab(id) {
+  if (id === 'friends') return openFriends();
+  if (id === 'ranking') return openRanking();
+  if (id === 'settings') return openSettings();
+  UI.stack = []; showPage(id);
+}
+function futGo(id) { UI.stack.push(UI.page); showPage(id); }
+function futBack() { if (UI.stack.length) showPage(UI.stack.pop()); else if (UI.page !== 'home') showPage('home'); }
+function showPage(id) { const ch = UI.page !== id; UI.page = id; UI.sel = Math.max(0, futPage(id).tiles.findIndex(t => t.sel)); renderFut(ch); }
+// ---------- desenho ----------
+function renderTop() {
+  const p = acct.profile, L = levelOf(prog.xp), mi = missionsInfo();
+  const crest = $('fuCrest'); if (!crest) return;
+  crest.textContent = ''; crest.append(avatarNode(myAvatar(), p ? p.name : '?', 'av'));
+  $('fuName').textContent = p ? p.name : 'Visitante';
+  $('fuEst').textContent = p && p.games >= 10 ? division(p.rating, p.games).name.toUpperCase() : 'NÍV ' + L.lvl;
+  $('fuElo').textContent = p ? p.rating : 1000;
+  $('fuXp').textContent = prog.xp;
+  $('fuStars').textContent = mi.done;
+  $('fuTimer').textContent = resetIn();
+  $('fuMisBar').style.width = `${mi.done / 3 * 100}%`; $('fuMisTxt').textContent = `${mi.done}/3`;
+  $('fuLvl').textContent = L.lvl;
+  const b = $('fuFrBadge'); if (b) { const n = FR.incoming | 0; b.textContent = n; b.classList.toggle('hidden', !n); }
+  document.querySelectorAll('.fu-tabs button[data-t]').forEach(x => x.classList.toggle('on', x.dataset.t === (TAB_OF[UI.page] || UI.page)));
+}
+function renderFut(anim = false) {
+  const main = $('fuMain'); if (!main) return;
+  renderTop();
+  const P = futPage(UI.page);
+  const head = h('div', { class: 'fu-head' + (anim ? ' in' : '') },
+    P.crumb ? h('div', { class: 'fu-crumb' }, h('button', { class: 'fu-back', text: '‹ ' + P.crumb, onclick: futBack })) : null,
+    h('h1', { class: 'fu-title', text: P.title }), h('p', { class: 'fu-sub', text: P.sub || '' }),
+    h('div', { class: 'fu-chips' }, ...(P.chips || []).map(([k, t]) => h('span', { class: 'fu-chip ' + k }, k === 'star' ? h('i', { class: 'fu-star' }) : h('i', { text: '⏱' }), t))));
+  const row = h('div', { class: 'fu-tiles' + (P.tiles.some(t => t.small) ? ' many' : '') + (anim ? ' in' : '') });
+  P.tiles.forEach((t, i) => row.append(futTile(t, i)));
+  const ic = $('inCode'); if (ic && main.contains(ic)) $('fuHold').append(ic);   // o campo do código não pode sumir da página
+  main.textContent = '';
+  main.append(head);
+  if (P.profile) main.append(futProfile(anim));
+  else main.append(row);
+  if (P.opts) main.append(futOptions());
+  if (P.balls) main.append(futBalls());
+  futSel(UI.sel, false);
+}
+function futTile(t, i) {
+  const art = h('div', { class: 'fu-art' });
+  if (t.art === 'code') {
+    const inp = $('inCode'); inp.placeholder = 'CÓDIGO';
+    const go = h('button', { class: 'fu-codego', text: 'ENTRAR ›' }); go.onclick = e => { e.stopPropagation(); $('btnJoin').click(); };
+    inp.onclick = e => e.stopPropagation(); inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') $('btnJoin').click(); };
+    art.append(h('div', { class: 'fu-code' }, h('small', { text: 'CÓDIGO DA SALA' }), inp, go));
+  } else if (typeof t.art === 'string') art.innerHTML = t.art;
+  else if (t.art) art.append(t.art);
+  art.insertAdjacentHTML('afterbegin', uniq(SWOOSH));        // a faixa laranja fica atrás da ilustração
+  art.append(h('div', { class: 'fu-tt', text: t.title }));
+  if (t.badge) art.append(h('span', { class: 'fu-badge', text: t.badge }));
+  const foot = h('div', { class: 'fu-foot' }, ...(t.foot || []).map(([l, v, star]) => h('div', {}, h('small', { text: l }), h('b', {}, String(v), star ? h('i', { class: 'fu-star' }) : null))));
+  const b = h('button', { class: 'fu-tile' + (t.wide ? ' wide' : '') + (t.small ? ' small' : '') + (t.locked ? ' locked' : '') + (t.sel ? ' cur' : ''), 'data-i': i, 'aria-label': t.title }, art, foot);
+  if (t.locked) b.append(h('div', { class: 'fu-lock' }, h('i', { text: '🔒' })), h('div', { class: 'fu-locktxt', text: t.locked }));
+  b.onclick = () => { UI.sel = i; futSel(i); if (t.go) t.go(); };
+  b.onmouseenter = () => futSel(i, false);
+  return b;
+}
+function futSel(i, focus = true) {
+  const tiles = [...document.querySelectorAll('#fuMain .fu-tile')]; if (!tiles.length) return;
+  UI.sel = Math.max(0, Math.min(tiles.length - 1, i));
+  tiles.forEach((t, j) => t.classList.toggle('sel', j === UI.sel));
+  if (focus) tiles[UI.sel].focus({ preventScroll: false });
+}
+function futOptions() {
+  const a = ARENAS[pickState.ar];
+  const arrow = (d, fn) => { const b = h('button', { class: 'fu-arr', text: d < 0 ? '‹' : '›', 'aria-label': d < 0 ? 'Anterior' : 'Próximo' }); b.onclick = fn; return b; };
+  const ar = h('div', { class: 'fu-opt' }, h('span', { class: 'fu-ol', text: 'Cenário' }),
+    h('div', { class: 'fu-ov' }, arrow(-1, () => { pickMove('ar', -1); renderFut(); }), h('b', {}, `${a.emoji} ${a.name}`, h('small', { text: a.tag })), arrow(1, () => { pickMove('ar', 1); renderFut(); })),
+    h('div', { class: 'fu-dots' }, ...ARENAS.map((_, i) => h('i', { class: i === pickState.ar ? 'on' : '' }))));
+  const fm = h('div', { class: 'fu-opt' }, h('span', { class: 'fu-ol', text: 'Formato' }),
+    h('div', { class: 'fu-seg' }, ...[[1, 'Duelo', '1 game de 11'], [3, 'MD3', 'melhor de 3'], [5, 'MD5', 'melhor de 5']].map(([f, n, s]) => {
+      const b = h('button', { class: pickState.fmt === f ? 'on' : '' }, n, h('small', { text: s }));
+      b.onclick = () => { pickState.fmt = f; store.set('pp_fmt', String(f)); renderPick(); renderFut(); }; return b;
+    })));
+  return h('div', { class: 'fu-opts' }, ar, fm, h('p', { class: 'fu-note', text: 'No online valem o cenário e o formato de quem cria a sala. A ranqueada é sempre 1 game.' }));
+}
+function futBalls() {
+  const row = h('div', { class: 'fu-balls' });
+  for (const sk of BALL_SKINS) {
+    const lk = skinLocked(sk);
+    const ball = h('i', { class: 'fu-ball', style: sk.rainbow ? 'background: conic-gradient(#ff3d5a,#ff9a3c,#ffe14a,#5dff7a,#3a8bff,#9a5cff,#ff3d5a)' : `background: radial-gradient(circle at 32% 28%, rgba(255,255,255,.8) 0 6%, ${sk.base} 30%, ${sk.base} 100%)` });
+    const b = h('button', { class: 'fu-bt' + (ballSkin.id === sk.id ? ' cur' : '') + (lk ? ' locked' : ''), title: sk.name }, ball, h('b', { text: sk.name }), h('small', { text: lk ? `🔒 nível ${SKIN_LV[sk.id]}` : ballSkin.id === sk.id ? 'EM USO' : 'Usar' }));
+    b.onclick = () => { if (lk) toast(`🔒 A bolinha ${sk.name} libera no nível ${SKIN_LV[sk.id]}`); else { applyBallSkin(sk); renderPick(); renderFut(); } };
+    row.append(b);
+  }
+  const tg = h('button', { class: 'fu-btn', text: `🏓 Sigla na raquete: ${myTag() || '—'}` }); tg.onclick = () => openSettings('perfil');
+  return h('div', { class: 'fu-sec' }, h('div', { class: 'fu-st' }, 'Bolinha', h('small', { text: ballSkin.name })), row, h('div', { class: 'fu-row' }, tg));
+}
+function futProfile(anim) {
+  const p = acct.profile, cur = myAvatar(), L = levelOf(prog.xp), dv = p ? division(p.rating, p.games) : division(1000, 0);
+  const card = h('div', { class: 'fu-pcard' },
+    h('div', { class: 'fu-pav' }, avatarNode(cur, p ? p.name : '?', 'fu-bigav')),
+    h('div', { class: 'fu-pinfo' }, h('b', { text: p ? p.name : 'Visitante' }), h('span', { text: `${myTag() || '—'} · Nível ${L.lvl}` }),
+      h('div', { class: 'fu-pstats' }, ...[['Elo', p ? p.rating : 1000], ['Divisão', dv.name], ['V / D', p ? `${p.wins}/${p.losses}` : '0/0'], ['Pico', p ? p.peak : 1000]].map(([l, v]) => h('div', {}, h('small', { text: l }), h('b', { text: String(v) }))))));
+  const bn = h('button', { class: 'fu-btn', text: '✎ Mudar nome' }); bn.onclick = () => editName();
+  const bt = h('button', { class: 'fu-btn', text: '🏓 Sigla e ajustes' }); bt.onclick = () => openSettings('perfil');
+  const bo = h('button', { class: 'fu-btn ghost', text: 'Sair da conta' }); bo.onclick = () => logout();
+  const btns = h('div', { class: 'fu-row' }, bn, bt);
+  if (p && p.admin) { const ba = h('button', { class: 'fu-btn', text: '🛠️ Painel admin' }); ba.onclick = () => openAdmin(); btns.append(ba); }
+  btns.append(bo);
+  const grid = h('div', { class: 'fu-avgrid' });
+  if (p && p.avatar_steam) {
+    const b = h('button', { class: 'fu-avt' + (cur === p.avatar_steam ? ' cur' : ''), title: 'Foto da Steam' }, avatarNode(p.avatar_steam, p.name, 'av'), h('small', { text: 'Steam' }));
+    b.onclick = () => setAvatar(null); grid.append(b);
+  }
+  for (const a of AVATARS) {
+    const lk = avLocked(a.id);
+    const b = h('button', { class: 'fu-avt' + (cur === a.id ? ' cur' : '') + (lk ? ' locked' : ''), title: a.name || 'Avatar' }, h('img', { class: 'av', src: avatarURI(a.id), alt: '' }), lk ? h('small', { text: `🔒 nív ${AV_LV[a.id]}` }) : a.name ? h('small', { text: a.name }) : null);
+    b.onclick = () => setAvatar(a.id); grid.append(b);
+  }
+  return h('div', { class: 'fu-profile' + (anim ? ' in' : '') }, h('div', {}, card, btns), h('div', { class: 'fu-sec' }, h('div', { class: 'fu-st' }, 'Avatar', h('small', { text: 'clique para usar' })), grid));
 }
 function initMenuShell() {
+  for (const w of ['500', '600', '700', '800-italic', '900-italic']) document.head.append(h('link', { rel: 'stylesheet', href: `${ASSET_FONT}latin-${w}.css` }));
   const st = document.createElement('style');
   st.textContent = `
-  /* ---------- fundo ---------- */
-  #lobby.rl { padding: 0; background: #04060c; overflow: hidden; display: block; }
-  #lobby.rl .rl-bg { position: absolute; inset: -4%; background: #04060c center / cover no-repeat; animation: rlKen 38s ease-in-out infinite alternate; filter: saturate(1.08); }
-  @keyframes rlKen { from { transform: scale(1.04) translate(0, 0); } to { transform: scale(1.12) translate(-1.5%, -1%); } }
-  #lobby.rl .rl-shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(3,5,12,.88) 0%, rgba(3,5,12,.55) 34%, rgba(3,5,12,.1) 62%, rgba(3,5,12,.45) 100%), linear-gradient(0deg, rgba(3,5,12,.85), transparent 30%); }
-  #lobby.rl .rl-spark { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: #6fd3ff; box-shadow: 0 0 8px #6fd3ff; opacity: 0; animation: rlSpark linear infinite; }
-  #lobby.rl .rl-spark.r { background: #ff7a4a; box-shadow: 0 0 8px #ff7a4a; }
-  @keyframes rlSpark { 0% { opacity: 0; transform: translateY(0); } 15% { opacity: .9; } 100% { opacity: 0; transform: translateY(-38vh); } }
-  #lobby.rl .rl-sweep { position: absolute; top: 0; bottom: 0; width: 30%; left: -40%; background: linear-gradient(100deg, transparent, rgba(120,200,255,.06), transparent); animation: rlSweep 9s ease-in-out infinite; pointer-events: none; }
+  :root { --fu-font: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif; --fu-or: #ff6b1a; --fu-bl: #2a7fff; --fu-pan: rgba(22,26,36,.88); }
+  #lobby.fut { padding: 0; background: #05070c; overflow: hidden; display: block; font-family: var(--fu-font); }
+  #lobby.fut .rl-bg { position: absolute; inset: -4%; background: #05070c center / cover no-repeat; animation: rlKen 40s ease-in-out infinite alternate; filter: saturate(1.05) brightness(.8); }
+  @keyframes rlKen { from { transform: scale(1.04); } to { transform: scale(1.12) translate(-1.5%, -1%); } }
   @keyframes rlSweep { 0%, 70% { left: -40%; } 100% { left: 120%; } }
-  /* o cartão antigo vira só um contêiner */
-  #lobby.rl > .card { max-width: none; width: 100%; height: 100%; margin: 0; padding: 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; border-radius: 0; text-align: left; position: relative; }
-  #lobby.rl > .card > h1, #lobby.rl > .card > .ball-ico, #lobby.rl > .card > .howto, #lobby.rl .gear { display: none; }
-  #lobby.rl #menu { margin: 0; gap: 0; height: 100%; }
-  /* ---------- barra de cima ---------- */
-  .rl-top { position: absolute; top: 0; left: 0; right: 0; height: 74px; display: flex; align-items: center; gap: 16px; padding: 0 26px; z-index: 3; background: linear-gradient(180deg, rgba(3,5,12,.75), transparent); }
-  .rl-logo { font: italic 900 26px system-ui; letter-spacing: .02em; line-height: .9; text-shadow: 0 0 24px rgba(80,170,255,.35); }
-  .rl-logo span { display: block; font: 800 10px system-ui; letter-spacing: .62em; color: #6fd3ff; margin-top: 5px; }
-  .rl-crumb { font: 900 12px system-ui; letter-spacing: .3em; color: rgba(255,255,255,.45); margin-left: 6px; padding-left: 16px; border-left: 1px solid rgba(255,255,255,.18); }
-  .rl-sp { flex: 1; }
-  .rl-prof { display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; background: rgba(10,16,30,.6); border: 1px solid rgba(111,211,255,.18); border-radius: 999px; backdrop-filter: blur(10px); cursor: pointer; transition: border-color .2s, background .2s; }
-  .rl-prof:hover { border-color: rgba(111,211,255,.5); background: rgba(14,24,44,.75); }
-  .rl-av { width: 40px; height: 40px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; font-weight: 900; background: linear-gradient(135deg, #1f6fff, #ff5a3c); flex: none; }
-  .rl-av img { width: 100%; height: 100%; object-fit: cover; }
-  .rl-pi b { display: block; font-size: 14px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .rl-pi small { font-size: 11px; opacity: .65; }
-  .rl-lvl { display: flex; align-items: center; gap: 6px; margin-top: 3px; } .rl-lvl i { font-style: normal; font: 900 10px system-ui; color: #6fd3ff; }
-  .rl-xp { width: 90px; height: 4px; border-radius: 9px; background: rgba(255,255,255,.12); overflow: hidden; } .rl-xp div { height: 100%; background: linear-gradient(90deg, #3aa0ff, #6fd3ff); box-shadow: 0 0 8px #6fd3ff; }
-  .rl-ib { position: relative; width: 44px; height: 44px; border-radius: 12px; border: 1px solid rgba(255,255,255,.14); background: rgba(10,16,30,.55); color: #fff; font-size: 19px; cursor: pointer; backdrop-filter: blur(10px); transition: transform .15s, border-color .2s, background .2s; }
-  .rl-ib:hover { transform: translateY(-2px); border-color: rgba(111,211,255,.55); background: rgba(20,34,60,.75); }
-  .rl-ib.dim { opacity: .55; } .rl-ib .bd { position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px; border-radius: 9px; background: #ff3d5a; font: 900 11px system-ui; display: grid; place-items: center; padding: 0 4px; }
-  .rl-ib .bd.hidden { display: none; }
-  /* ---------- navegação ---------- */
-  .rl-nav { position: absolute; left: 0; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; padding-left: 26px; z-index: 3; width: min(340px, 40vw); }
-  .rl-nav button { position: relative; text-align: left; border: 0; cursor: pointer; color: #fff; background: none; padding: 0; font: italic 900 22px system-ui; letter-spacing: .05em; height: 52px; display: flex; align-items: center; animation: rlIn .5s cubic-bezier(.2,.9,.3,1) both; }
-  .rl-nav button::before { content: ''; position: absolute; inset: 0; transform: skewX(-14deg); background: linear-gradient(90deg, rgba(20,34,62,.75), rgba(20,34,62,.35)); border-left: 4px solid rgba(111,211,255,.35); transition: background .25s, border-color .25s, transform .25s, box-shadow .25s; }
-  .rl-nav button span { position: relative; padding-left: 26px; transition: transform .25s, letter-spacing .25s; display: flex; align-items: center; gap: 12px; }
-  .rl-nav button span em { font: 800 11px system-ui; font-style: normal; letter-spacing: .14em; opacity: .55; margin-left: 4px; }
-  .rl-nav button:hover::before, .rl-nav button.on::before { background: linear-gradient(90deg, rgba(31,111,255,.85), rgba(31,111,255,.25)); border-left-color: #6fd3ff; box-shadow: 0 0 30px rgba(31,111,255,.35); transform: skewX(-14deg) translateX(10px); }
-  .rl-nav button:hover span, .rl-nav button.on span { transform: translateX(16px); }
-  .rl-nav button.main { height: 70px; font-size: 32px; margin-bottom: 6px; }
-  .rl-nav button.main::before { background: linear-gradient(90deg, rgba(255,90,60,.92), rgba(255,61,127,.55)); border-left-color: #ffd34d; box-shadow: 0 10px 40px rgba(255,90,60,.35); }
-  .rl-nav button.main:hover::before, .rl-nav button.main.on::before { background: linear-gradient(90deg, #ff6a3c, rgba(255,61,127,.7)); box-shadow: 0 0 46px rgba(255,110,60,.6); }
-  ${[1, 2, 3, 4, 5, 6, 7].map(i => `.rl-nav button:nth-child(${i}) { animation-delay: ${0.05 * i}s; }`).join(' ')}
-  @keyframes rlIn { from { opacity: 0; transform: translateX(-40px); } }
-  /* ---------- páginas ---------- */
-  .rl-pages { position: absolute; top: 84px; bottom: 56px; right: 26px; left: min(390px, 43vw); z-index: 2; }
-  .rl-page { position: absolute; inset: 0; overflow-y: auto; opacity: 0; transform: translateX(40px); pointer-events: none; transition: opacity .3s, transform .35s cubic-bezier(.2,.9,.3,1); padding: 4px 6px 20px; scrollbar-width: thin; }
-  .rl-page.in { opacity: 1; transform: none; pointer-events: auto; }
-  .rl-page.out { opacity: 0; transform: translateX(-30px); }
-  .rl-panel { background: linear-gradient(160deg, rgba(14,22,40,.82), rgba(8,12,24,.78)); border: 1px solid rgba(111,211,255,.14); border-radius: 18px; padding: 16px 18px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 20px 60px rgba(0,0,0,.45); margin-bottom: 14px; position: relative; overflow: hidden; }
-  .rl-panel::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, rgba(111,211,255,.7), transparent); }
-  .rl-h { font: italic 900 20px system-ui; letter-spacing: .04em; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
-  .rl-h small { font: 700 11px system-ui; letter-spacing: .14em; opacity: .55; font-style: normal; margin-left: auto; }
-  .rl-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin-bottom: 14px; }
-  .rl-mode { display: flex; flex-direction: column; gap: 10px; margin: 0; transition: transform .25s, border-color .25s, box-shadow .25s; }
-  .rl-mode:hover { transform: translateY(-4px); border-color: rgba(111,211,255,.4); box-shadow: 0 26px 60px rgba(0,0,0,.5), 0 0 30px rgba(31,111,255,.18); }
-  .rl-mode .ic { font-size: 30px; line-height: 1; } .rl-mode p { font-size: 13px; opacity: .7; line-height: 1.4; min-height: 36px; }
-  .rl-mode .btn, #lobby.rl .btn { margin: 0; border-radius: 10px; transition: transform .15s, box-shadow .2s, filter .2s; }
-  #lobby.rl .btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
-  #lobby.rl .btn:not(.ghost):not(.gold):not(.green) { background: linear-gradient(180deg, #2d7dff, #1a56d6); box-shadow: 0 8px 24px rgba(31,111,255,.35); }
-  #lobby.rl .btn.ghost { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12); }
-  #lobby.rl .row { margin: 0; } #lobby.rl input { border-radius: 10px; }
-  #lobby.rl .loadout { margin: 0; } #lobby.rl .pk-note { opacity: .55; }
-  #lobby.rl .seg button.on, #lobby.rl .bs.on { border-color: #6fd3ff; }
-  #lobby.rl .seg button.on { background: linear-gradient(180deg, rgba(31,111,255,.55), rgba(31,111,255,.2)); }
-  .rl-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  @media (max-width: 1100px) { .rl-grid2 { grid-template-columns: 1fr; } }
-  /* ---------- painéis sobre o menu (sala, conectando, fila) ---------- */
-  #lobby.rl #wait, #lobby.rl #joining, #lobby.rl #rankedPanel { position: absolute; z-index: 5; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, 92vw); margin: 0; background: linear-gradient(160deg, rgba(14,22,40,.95), rgba(8,12,24,.95)); border: 1px solid rgba(111,211,255,.3); border-radius: 20px; padding: 22px; text-align: center; box-shadow: 0 30px 90px rgba(0,0,0,.7); animation: rlPop .35s cubic-bezier(.2,1.4,.4,1); }
-  @keyframes rlPop { from { opacity: 0; transform: translate(-50%, -46%) scale(.94); } }
-  #lobby.rl #lobbyMsg { position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 6; margin: 0; background: rgba(60,10,24,.85); border: 1px solid rgba(255,90,120,.4); padding: 8px 16px; border-radius: 999px; }
-  #lobby.rl #lobbyMsg:empty { display: none; }
-  /* ---------- rodapé ---------- */
-  .rl-foot { position: absolute; left: 26px; right: 26px; bottom: 14px; display: flex; align-items: center; gap: 18px; z-index: 3; font: 700 11px system-ui; letter-spacing: .12em; color: rgba(255,255,255,.45); }
-  .rl-foot kbd { font: 900 10px system-ui; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,.12); color: #fff; margin-right: 6px; }
-  .rl-foot .rl-sp { flex: 1; }
-  /* ---------- celular ---------- */
+  @keyframes rlIn { from { opacity: 0; transform: translateY(18px); } }
+  #lobby.fut .rl-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(5,7,12,.75) 0, rgba(5,7,12,.35) 30%, rgba(5,7,12,.55) 70%, rgba(5,7,12,.9) 100%); }
+  #lobby.fut > .card { max-width: none; width: 100%; height: 100%; margin: 0; padding: 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; border-radius: 0; text-align: left; position: relative; }
+  #lobby.fut > .card > h1, #lobby.fut > .card > .ball-ico, #lobby.fut > .card > .howto, #lobby.fut .gear, #fuHold { display: none !important; }
+  #lobby.fut #menu { margin: 0; gap: 0; height: 100%; display: block; }
+  /* barra do clube */
+  .fu-top { position: absolute; top: 0; left: 0; right: 0; height: 44px; display: flex; align-items: center; gap: 14px; padding: 0 22px; background: linear-gradient(90deg, rgba(10,12,18,.92), rgba(10,12,18,.7)); border-bottom: 1px solid rgba(255,255,255,.06); z-index: 4; font-weight: 600; font-size: 15px; }
+  .fu-crest { width: 30px; height: 30px; flex: none; clip-path: polygon(50% 0, 100% 12%, 100% 62%, 50% 100%, 0 62%, 0 12%); background: #ffc23a; padding: 2px; cursor: pointer; }
+  .fu-crest .av { width: 100%; height: 100%; display: grid; place-items: center; object-fit: cover; clip-path: inherit; background: #1d2433; font-weight: 800; font-size: 14px; }
+  .fu-club { display: flex; align-items: center; gap: 10px; cursor: pointer; } .fu-club b { font-size: 16px; font-weight: 700; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fu-sep { width: 1px; height: 18px; background: rgba(255,255,255,.18); }
+  .fu-cur { display: flex; align-items: center; gap: 6px; font-weight: 600; } .fu-cur i { font-style: normal; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 900; border: 1.5px solid currentColor; }
+  .fu-cur.elo i { color: #ffc23a; } .fu-cur.xp i { color: #38e1ff; } .fu-cur.st i { color: #b38cff; border: 0; font-size: 15px; }
+  .fu-sp { flex: 1; }
+  .fu-timer { display: flex; align-items: center; gap: 6px; color: #ff9a3c; font-weight: 700; } .fu-mbar { width: 120px; height: 6px; background: rgba(255,255,255,.12); position: relative; } .fu-mbar i { position: absolute; inset: 0 auto 0 0; background: var(--fu-bl); }
+  .fu-lvl { min-width: 26px; height: 26px; display: grid; place-items: center; background: #fff; color: #0b0e14; font-weight: 800; font-size: 15px; padding: 0 6px; }
+  .fu-ib { position: relative; width: 34px; height: 30px; border: 0; background: rgba(255,255,255,.07); color: #fff; font-size: 16px; cursor: pointer; } .fu-ib:hover { background: rgba(255,255,255,.18); }
+  .fu-ib .bd { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; border-radius: 8px; background: #e8273f; font: 800 11px var(--fu-font); display: grid; place-items: center; padding: 0 3px; } .fu-ib .bd.hidden { display: none; }
+  /* abas */
+  .fu-tabs { position: absolute; top: 44px; left: 0; right: 0; height: 46px; display: flex; align-items: center; gap: 4px; padding: 0 22px; z-index: 3; }
+  .fu-tabs button { border: 0; background: none; color: rgba(255,255,255,.55); font: 700 19px var(--fu-font); text-transform: uppercase; letter-spacing: .04em; padding: 10px 14px; cursor: pointer; position: relative; transition: color .2s; }
+  .fu-tabs button:hover { color: #fff; } .fu-tabs button.on { color: #fff; }
+  .fu-tabs button.on::after { content: ''; position: absolute; left: 14px; right: 14px; bottom: 2px; height: 3px; background: var(--fu-or); animation: fuBar .3s ease; }
+  @keyframes fuBar { from { transform: scaleX(0); } }
+  .fu-key { min-width: 26px; height: 22px; display: inline-grid; place-items: center; padding: 0 6px; border-radius: 4px; background: rgba(255,255,255,.14); font: 800 12px var(--fu-font); color: #fff; }
+  .fu-tabs .fu-key { margin: 0 6px; opacity: .7; }
+  /* área principal */
+  #fuMain { position: absolute; top: 96px; left: 0; right: 0; bottom: 46px; overflow-y: auto; padding: 14px 32px 20px; z-index: 2; scrollbar-width: thin; }
+  .fu-head { margin-bottom: 18px; } .fu-head.in > * { animation: rlIn .45s cubic-bezier(.2,.9,.3,1) both; } .fu-head.in > *:nth-child(2) { animation-delay: .04s; } .fu-head.in > *:nth-child(3) { animation-delay: .08s; }
+  .fu-crumb { margin-bottom: 2px; } .fu-back { border: 0; background: none; color: rgba(255,255,255,.6); font: 700 16px var(--fu-font); text-transform: uppercase; letter-spacing: .08em; cursor: pointer; padding: 0; } .fu-back:hover { color: #fff; }
+  .fu-title { margin: 0; font: italic 900 clamp(40px, 5.6vw, 68px) / .95 var(--fu-font); text-transform: uppercase; letter-spacing: .005em; text-shadow: 0 4px 30px rgba(0,0,0,.5); }
+  .fu-sub { margin: 6px 0 10px; font: 500 17px var(--fu-font); color: rgba(255,255,255,.75); max-width: 760px; }
+  .fu-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .fu-chip { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 12px; font: 700 15px var(--fu-font); text-transform: uppercase; background: rgba(60,66,82,.75); clip-path: polygon(0 0, 100% 0, calc(100% - 8px) 100%, 0 100%); padding-right: 18px; }
+  .fu-chip.time { background: var(--fu-bl); } .fu-chip i { font-style: normal; }
+  .fu-star { display: inline-block; width: 14px; height: 14px; background: #b38cff; clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); margin-left: 4px; vertical-align: -1px; }
+  .fu-chip .fu-star { margin: 0; }
+  /* cartões */
+  .fu-tiles { display: flex; gap: 6px; align-items: stretch; }
+  .fu-tiles.many { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); }
+  .fu-tile { position: relative; flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; border: 0; padding: 0; cursor: pointer; color: #fff; text-align: left; background: var(--fu-pan); outline: none; transition: transform .2s cubic-bezier(.2,.9,.3,1.2), filter .2s, box-shadow .2s; font-family: var(--fu-font); overflow: hidden; }
+  .fu-tile.wide { flex: 1.45 1 0; }
+  .fu-tiles.in .fu-tile { animation: rlIn .5s cubic-bezier(.2,.9,.3,1) both; } ${[1, 2, 3, 4, 5, 6, 7].map(i => `.fu-tiles.in .fu-tile:nth-child(${i + 1}) { animation-delay: ${i * 0.05}s; }`).join(' ')}
+  .fu-art { position: relative; height: clamp(170px, 34vh, 300px); overflow: hidden; background: radial-gradient(ellipse at 50% 40%, rgba(255,255,255,.07), transparent 65%), linear-gradient(180deg, #1c2230, #10141d); }
+  .fu-tile.small .fu-art { height: clamp(150px, 26vh, 220px); }
+  .fu-svg { position: absolute; inset: 0; width: 100%; height: 100%; transition: transform .45s cubic-bezier(.2,.9,.3,1); }
+  .fu-swoosh { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .7; transition: opacity .3s, transform .5s; pointer-events: none; }
+  .fu-tt { position: absolute; left: 14px; right: 12px; bottom: 10px; font: italic 900 clamp(24px, 2.6vw, 36px) / .95 var(--fu-font); text-transform: uppercase; text-shadow: 0 3px 14px rgba(0,0,0,.8); }
+  .fu-tile.small .fu-tt { font-size: clamp(20px, 1.9vw, 27px); }
+  .fu-badge { position: absolute; top: 10px; left: 10px; background: var(--fu-or); font: 800 13px var(--fu-font); letter-spacing: .06em; padding: 3px 8px; }
+  .fu-foot { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; padding: 9px 14px 11px; background: rgba(34,39,52,.95); border-bottom: 4px solid transparent; transition: border-color .2s; }
+  .fu-foot small { display: block; font: 600 12.5px var(--fu-font); text-transform: uppercase; color: rgba(255,255,255,.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fu-foot b { display: block; font: 700 19px var(--fu-font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fu-tile.sel, .fu-tile:focus-visible { transform: translateY(-4px); box-shadow: 0 18px 40px rgba(0,0,0,.55); z-index: 1; }
+  .fu-tile.sel .fu-foot, .fu-tile:focus-visible .fu-foot { border-bottom-color: var(--fu-or); }
+  .fu-tile.sel .fu-svg { transform: scale(1.06); } .fu-tile.sel .fu-swoosh { opacity: .85; transform: translateX(-3%); }
+  .fu-tile.cur .fu-foot { background: linear-gradient(90deg, rgba(255,107,26,.35), rgba(34,39,52,.95)); }
+  .fu-tile.locked .fu-art > *:not(.fu-tt) { filter: grayscale(1) brightness(.45); } .fu-tile.locked .fu-tt { opacity: .7; }
+  .fu-lock { position: absolute; top: 0; right: 0; width: 46px; height: 46px; background: linear-gradient(45deg, transparent 50%, rgba(220,226,236,.9) 50%); } .fu-lock i { position: absolute; top: 4px; right: 5px; font-style: normal; font-size: 13px; filter: grayscale(1) brightness(.2); }
+  .fu-locktxt { position: absolute; left: 12px; right: 12px; top: 34%; text-align: center; font: 600 15px var(--fu-font); color: rgba(255,255,255,.85); }
+  .fu-rk { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--rc) 45%, transparent), transparent 62%); }
+  .fu-rk img { width: 78%; max-height: 92%; object-fit: contain; transform: rotate(-18deg); filter: drop-shadow(0 18px 24px rgba(0,0,0,.55)); transition: transform .45s cubic-bezier(.2,.9,.3,1); }
+  .fu-tile.sel .fu-rk img { transform: rotate(-10deg) scale(1.06); }
+  .fu-bigav { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: 54%; aspect-ratio: 1; object-fit: cover; clip-path: polygon(50% 0, 100% 12%, 100% 62%, 50% 100%, 0 62%, 0 12%); background: #2a3142; display: grid; place-items: center; font: italic 900 72px var(--fu-font); }
+  .fu-code { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 0 18px 40px; z-index: 1; }
+  .fu-code small { font: 700 14px var(--fu-font); letter-spacing: .14em; color: rgba(255,255,255,.65); }
+  .fu-code input { width: 100%; max-width: 230px; background: rgba(0,0,0,.45); border: 2px solid rgba(255,255,255,.25); border-radius: 0; font: 800 30px var(--fu-font); letter-spacing: .35em; text-align: center; padding: 8px; color: #fff; }
+  .fu-code input:focus { border-color: var(--fu-or); }
+  .fu-codego { border: 0; background: #fff; color: #0b0e14; font: 800 17px var(--fu-font); padding: 8px 18px; cursor: pointer; } .fu-codego:hover { background: var(--fu-or); color: #fff; }
+  /* opções (cenário, formato) e seções */
+  .fu-opts, .fu-sec { margin-top: 12px; background: var(--fu-pan); padding: 12px 16px; }
+  .fu-opt { display: grid; grid-template-columns: 130px 1fr auto; align-items: center; gap: 14px; padding: 8px 0; } .fu-opt + .fu-opt { border-top: 1px solid rgba(255,255,255,.06); }
+  .fu-ol, .fu-st { font: 700 17px var(--fu-font); text-transform: uppercase; letter-spacing: .06em; color: rgba(255,255,255,.7); }
+  .fu-st { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; } .fu-st small { font-size: 14px; color: var(--fu-or); }
+  .fu-ov { display: flex; align-items: center; gap: 12px; } .fu-ov b { flex: 1; text-align: center; font: 700 21px var(--fu-font); } .fu-ov b small { display: block; font: 500 14px var(--fu-font); color: rgba(255,255,255,.55); }
+  .fu-arr { width: 34px; height: 34px; border: 0; background: rgba(255,255,255,.08); color: #fff; font: 800 22px var(--fu-font); cursor: pointer; } .fu-arr:hover { background: #fff; color: #0b0e14; }
+  .fu-dots { display: flex; gap: 5px; } .fu-dots i { width: 18px; height: 4px; background: rgba(255,255,255,.2); } .fu-dots i.on { background: var(--fu-or); }
+  .fu-seg { display: flex; gap: 6px; grid-column: span 2; } .fu-seg button { flex: 1; border: 0; background: rgba(255,255,255,.07); color: #fff; font: 700 19px var(--fu-font); text-transform: uppercase; padding: 7px 10px; cursor: pointer; border-bottom: 3px solid transparent; }
+  .fu-seg button small { display: block; font: 500 13px var(--fu-font); text-transform: none; color: rgba(255,255,255,.6); }
+  .fu-seg button:hover { background: rgba(255,255,255,.14); } .fu-seg button.on { background: #fff; color: #0b0e14; border-bottom-color: var(--fu-or); } .fu-seg button.on small { color: #475569; }
+  .fu-note { margin: 6px 0 0; font: 500 14px var(--fu-font); color: rgba(255,255,255,.5); }
+  .fu-balls { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+  .fu-bt { border: 0; background: rgba(255,255,255,.05); color: #fff; padding: 12px 6px 9px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; font-family: var(--fu-font); border-bottom: 3px solid transparent; transition: background .2s, transform .2s; }
+  .fu-bt:hover { background: rgba(255,255,255,.12); transform: translateY(-2px); } .fu-bt.cur { border-bottom-color: var(--fu-or); background: rgba(255,107,26,.16); }
+  .fu-bt b { font: 700 16px var(--fu-font); } .fu-bt small { font: 600 12px var(--fu-font); color: rgba(255,255,255,.55); text-transform: uppercase; }
+  .fu-ball { width: 42px; height: 42px; border-radius: 50%; box-shadow: inset -6px -8px 14px rgba(0,0,0,.35), 0 6px 14px rgba(0,0,0,.4); }
+  .fu-bt.locked .fu-ball { filter: grayscale(1) brightness(.5); }
+  .fu-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .fu-btn { border: 0; background: rgba(255,255,255,.1); color: #fff; font: 700 17px var(--fu-font); text-transform: uppercase; letter-spacing: .03em; padding: 10px 16px; cursor: pointer; transition: background .15s, color .15s; }
+  .fu-btn:hover { background: #fff; color: #0b0e14; } .fu-btn.ghost { background: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.2); }
+  /* perfil */
+  .fu-profile { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 12px; align-items: start; } .fu-profile.in > * { animation: rlIn .45s both; }
+  .fu-pcard { background: var(--fu-pan); position: relative; overflow: hidden; }
+  .fu-pav { position: relative; height: 260px; background: radial-gradient(circle at 50% 45%, rgba(255,107,26,.35), transparent 60%), linear-gradient(180deg, #1c2230, #10141d); }
+  .fu-pinfo { padding: 12px 16px 14px; background: rgba(34,39,52,.95); border-bottom: 4px solid var(--fu-or); }
+  .fu-pinfo > b { display: block; font: italic 900 32px var(--fu-font); text-transform: uppercase; } .fu-pinfo > span { font: 600 15px var(--fu-font); color: rgba(255,255,255,.65); }
+  .fu-pstats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; } .fu-pstats small { display: block; font: 600 12px var(--fu-font); color: rgba(255,255,255,.55); text-transform: uppercase; } .fu-pstats b { font: 700 18px var(--fu-font); }
+  .fu-avgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; }
+  .fu-avt { position: relative; border: 0; padding: 8px 8px 6px; background: rgba(255,255,255,.05); cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; border-bottom: 3px solid transparent; transition: background .2s, transform .2s; color: #fff; }
+  .fu-avt .av { width: 100%; aspect-ratio: 1; object-fit: cover; display: grid; place-items: center; background: #2a3142; font: 800 30px var(--fu-font); }
+  .fu-avt small { font: 600 12px var(--fu-font); text-transform: uppercase; color: rgba(255,255,255,.6); }
+  .fu-avt:hover { background: rgba(255,255,255,.12); transform: translateY(-3px); } .fu-avt.cur { border-bottom-color: var(--fu-or); background: rgba(255,107,26,.18); } .fu-avt.locked .av { filter: grayscale(1) brightness(.45); }
+  /* rodapé de teclas */
+  .fu-hints { position: absolute; left: 0; right: 0; bottom: 0; height: 46px; display: flex; align-items: center; gap: 22px; padding: 0 32px; z-index: 3; font: 600 16px var(--fu-font); color: rgba(255,255,255,.85); background: linear-gradient(0deg, rgba(5,7,12,.85), transparent); }
+  .fu-hints span { display: flex; align-items: center; gap: 8px; cursor: default; } .fu-hints .fu-key { border-radius: 50%; min-width: 24px; height: 24px; background: rgba(255,255,255,.9); color: #0b0e14; }
+  .fu-hints .fu-sp { flex: 1; } .fu-hints small { font: 600 12px var(--fu-font); letter-spacing: .1em; color: rgba(255,255,255,.4); }
+  /* janelas por cima do menu (sala, conectando, fila) */
+  #lobby.fut #wait, #lobby.fut #joining, #lobby.fut #rankedPanel { position: absolute; z-index: 5; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(440px, 92vw); margin: 0; background: rgba(18,22,31,.97); border-bottom: 4px solid var(--fu-or); padding: 24px; text-align: center; box-shadow: 0 30px 90px rgba(0,0,0,.7); animation: fuPop .35s cubic-bezier(.2,1.2,.4,1); font-family: var(--fu-font); }
+  #lobby.fut #wait .btn, #lobby.fut #joining .btn, #lobby.fut #rankedPanel .btn { border-radius: 0; font: 700 18px var(--fu-font); text-transform: uppercase; }
+  #lobby.fut #wait .btn:not(.ghost):not(.green) { background: #fff; color: #0b0e14; box-shadow: none; }
+  #lobby.fut .code { font-family: var(--fu-font); font-style: italic; font-weight: 900; }
+  @keyframes fuPop { from { opacity: 0; transform: translate(-50%, -46%) scale(.96); } }
+  #lobby.fut #lobbyMsg { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); z-index: 6; margin: 0; background: rgba(60,10,24,.9); padding: 8px 16px; font: 600 16px var(--fu-font); }
+  #lobby.fut #lobbyMsg:empty { display: none; }
+  /* telas abertas pelo menu (ajustes, amigos, ranking, admin): mesmo visual */
+  .screen.fuov { background: linear-gradient(180deg, rgba(5,7,12,.82), rgba(5,7,12,.95)), var(--fu-bgimg, none) center / cover; padding: 0; align-items: stretch; font-family: var(--fu-font); }
+  .screen.fuov > .card { max-width: 1120px !important; width: 100%; margin: 0 auto; background: none; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; border-radius: 0; padding: 30px 36px 70px; text-align: left; max-height: none; overflow: visible; animation: rlIn .4s both; }
+  .screen.fuov .cf-head, .screen.fuov > .card > h2 { margin-bottom: 14px; }
+  .screen.fuov h2 { font: italic 900 clamp(40px, 5.4vw, 64px) / .95 var(--fu-font); text-transform: uppercase; margin: 0; }
+  .screen.fuov .cf-x { width: auto; height: 34px; border-radius: 0; padding: 0 14px; font: 700 16px var(--fu-font); text-transform: uppercase; background: rgba(255,255,255,.1); }
+  .screen.fuov .cf-x::before { content: 'ESC  '; opacity: .55; } .screen.fuov .cf-x:hover { background: #fff; color: #0b0e14; }
+  .screen.fuov .cf-sec, .screen.fuov .adm-box, .screen.fuov .fr-sec, .screen.fuov .rk-list { background: var(--fu-pan); border: 0; border-radius: 0; padding: 12px 16px; }
+  .screen.fuov .cf-t, .screen.fuov .fr-t { font: 700 17px var(--fu-font); letter-spacing: .06em; color: rgba(255,255,255,.75); }
+  .screen.fuov .cf-l { font: 600 17px var(--fu-font); } .screen.fuov .cf-l small { font: 500 13.5px var(--fu-font); }
+  .screen.fuov .btn, .screen.fuov .cf-save, .screen.fuov .cf-q { border-radius: 0; font-family: var(--fu-font); font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+  .screen.fuov .btn:not(.ghost) { background: #fff; color: #0b0e14; box-shadow: none; } .screen.fuov .btn.ghost { background: rgba(255,255,255,.08); }
+  .screen.fuov .cf-q.on { background: #fff; color: #0b0e14; }
+  .screen.fuov .cf-foot { display: flex; gap: 8px; margin-top: 14px; } .screen.fuov .cf-foot .btn { width: auto; padding: 12px 24px; }
+  .screen.fuov input[type=range] { accent-color: var(--fu-or); }
+  .screen.fuov .muted, .screen.fuov p { font-family: var(--fu-font); font-size: 16px; }
+  .screen.fuov .rk-row { font-family: var(--fu-font); font-size: 17px; border-radius: 0; grid-template-columns: 44px 34px 1fr auto 64px 70px; }
+  .screen.fuov .rk-row.me { background: rgba(255,107,26,.22); box-shadow: inset 4px 0 0 var(--fu-or); }
+  #authGate .ag-logo, #authGate .ag-h, #authGate .btn, #authGate .ag-tabs button, #authGate .ag-or { font-family: var(--fu-font); }
+  #authGate .btn { font-size: 18px; text-transform: uppercase; }
+  .rk-av { width: 30px; height: 30px; object-fit: cover; display: grid; place-items: center; background: #2a3142; font-weight: 800; }
+  .fr-av { object-fit: cover; }
+  .fu-tile .fxw { z-index: 2; }
+  .screen.fuov .fr-row { border-radius: 0; }
   @media (max-width: 760px) {
-    .rl-top { height: 62px; padding: 0 12px; } .rl-logo { font-size: 19px; } .rl-crumb, .rl-pi small, .rl-lvl { display: none; } .rl-pi b { max-width: 90px; font-size: 12px; }
-    .rl-nav { position: absolute; top: 66px; transform: none; flex-direction: row; overflow-x: auto; width: 100%; padding: 0 10px 6px; gap: 6px; }
-    .rl-nav button, .rl-nav button.main { height: 42px; font-size: 14px; flex: none; margin: 0; animation: none; }
-    .rl-nav button span { padding: 0 18px 0 16px; } .rl-nav button span em { display: none; }
-    .rl-nav button:hover span, .rl-nav button.on span { transform: none; } .rl-nav button:hover::before, .rl-nav button.on::before { transform: skewX(-14deg); }
-    .rl-pages { top: 118px; left: 10px; right: 10px; bottom: 44px; } .rl-foot { display: none; }
-    #lobby.rl .rl-shade { background: linear-gradient(0deg, rgba(3,5,12,.9), rgba(3,5,12,.55)); }
+    .fu-top { padding: 0 10px; gap: 8px; font-size: 13px; } .fu-cur.xp, .fu-timer, .fu-mbar, .fu-sep.s2, .fu-club b { display: none; }
+    .fu-tabs { overflow-x: auto; padding: 0 6px; } .fu-tabs button { font-size: 16px; padding: 10px 10px; flex: none; } .fu-tabs .fu-key { display: none; }
+    #fuMain { padding: 10px 12px 20px; } .fu-tiles { flex-direction: column; } .fu-tile, .fu-tile.wide { flex: none; } .fu-art { height: 150px; }
+    .fu-tiles.many { grid-template-columns: 1fr 1fr; } .fu-hints { display: none; } #fuMain { bottom: 0; }
+    .fu-profile { grid-template-columns: 1fr; } .fu-opt { grid-template-columns: 1fr; gap: 6px; } .fu-seg { grid-column: auto; }
+    .screen.fuov > .card { padding: 20px 14px 40px; }
   }`;
   document.head.appendChild(st);
 
   const lobby = $('lobby'), card = lobby.querySelector('.card'), menu = $('menu');
-  lobby.classList.add('rl');
-  // fundo: arte + brilho que passa + faíscas subindo
-  const bg = h('div', { class: 'rl-bg' });
-  const small = window.innerWidth < 900;
-  const img = new Image();
-  img.onload = () => { bg.style.backgroundImage = `url("${img.src}")`; };
+  lobby.classList.add('fut', 'rl');
+  // fundo (mesma arte), com zoom lento
+  const bg = h('div', { class: 'rl-bg' }), small = window.innerWidth < 900, img = new Image();
+  img.onload = () => { bg.style.backgroundImage = `url("${img.src}")`; document.documentElement.style.setProperty('--fu-bgimg', `url("${img.src}")`); };
   img.onerror = () => { if (!img.dataset.f) { img.dataset.f = 1; img.src = ASSET_BASES[1] + (small ? 'menu-bg-small.jpg' : 'menu-bg.jpg'); } };
   img.src = ASSET_BASES[0] + (small ? 'menu-bg-small.jpg' : 'menu-bg.jpg');
-  const fx = [bg, h('div', { class: 'rl-sweep' }), h('div', { class: 'rl-shade' })];
-  for (let i = 0; i < 22; i++) {
-    const s = h('div', { class: 'rl-spark' + (i % 3 === 0 ? ' r' : '') });
-    s.style.left = (i % 3 === 0 ? 2 + Math.random() * 25 : 58 + Math.random() * 38) + '%';
-    s.style.top = (45 + Math.random() * 30) + '%';
-    s.style.animationDuration = (5 + Math.random() * 6) + 's'; s.style.animationDelay = (-Math.random() * 10) + 's';
-    fx.push(s);
-  }
-  lobby.prepend(...fx);
-
-  // barra de cima: logo, perfil e atalhos
-  const prof = h('div', { class: 'rl-prof', title: acct.user ? 'Perfil e sigla' : 'Entrar' },
-    h('div', { class: 'rl-av', id: 'rlAv' }), h('div', { class: 'rl-pi' }, h('b', { id: 'rlName' }), h('small', { id: 'rlSub' }),
-      h('div', { class: 'rl-lvl' }, h('i', {}, 'NÍV ', h('span', { id: 'rlLvl' })), h('div', { class: 'rl-xp' }, h('div', { id: 'rlXpBar' })))));
-  prof.onclick = () => { if (acct.user) openSettings('perfil'); else showPage('home'); };
-  const ib = (txt, title, fn, id) => { const b = h('button', { class: 'rl-ib', title, 'aria-label': title, id }, txt); b.onclick = () => fn(); return b; };
-  const frB = ib('👥', 'Amigos', () => openFriends(), 'rlFr'); frB.append(h('span', { class: 'bd hidden', id: 'rlFrBadge' }));
-  const top = h('div', { class: 'rl-top' }, h('div', { class: 'rl-logo' }, 'PING PONG', h('span', { text: 'ONLINE' })), h('div', { class: 'rl-crumb', id: 'rlCrumb', text: 'INÍCIO' }), h('div', { class: 'rl-sp' }),
-    prof, frB, ib('🏆', 'Ranking', () => openRanking()), ib('⚙️', 'Configurações', () => openSettings()));
-  // navegação
-  const nb = (p, label, sub, fn, cls = '') => {
-    const b = h('button', { class: cls, 'data-p': p || '' }, h('span', {}, label, sub ? h('em', { text: sub }) : null));
-    b.onclick = () => { ensureAudio(); fn ? fn() : showPage(p); };
-    return b;
-  };
-  const nav = h('div', { class: 'rl-nav' },
-    nb('play', 'JOGAR', 'online · treino · ranqueada', null, 'main'),
-    nb('garage', 'GARAGEM', 'raquete · bolinha', null),
-    nb('', 'AMIGOS', '', () => openFriends()),
-    nb('', 'RANKING', '', () => openRanking()),
-    nb('', 'TUTORIAL', '1 min', () => startTutorial()),
-    nb('', 'CONFIGURAÇÕES', '', () => openSettings()),
-    nb('home', 'INÍCIO', '', null));
-  // páginas
-  const lo = menu.querySelector('.loadout');
-  const kids = lo ? [...lo.children] : [];
-  const grab = (fromIdx, toIdx) => kids.slice(fromIdx, toIdx);
-  const idx = sel => kids.findIndex(e => e.matches(sel));
-  // separa o antigo "loadout" em raquete/bolinha (garagem) e cenário/formato/CPU (jogar)
-  const iRk = 0, iAr = kids.findIndex(e => e.classList.contains('lo-t') && /CEN/.test(e.textContent)), iBs = kids.findIndex(e => e.classList.contains('lo-t') && /BOLINHA/.test(e.textContent)), iFmt = kids.findIndex(e => e.classList.contains('lo-t') && /PARTIDA/.test(e.textContent));
-  const rkNodes = grab(iRk, iAr), arNodes = grab(iAr, iBs), bsNodes = grab(iBs, iFmt), fmtNodes = grab(iFmt, kids.length);
-  const cpuT = fmtNodes.find(e => e.classList.contains('lo-t') && /CPU/.test(e.textContent)), diff = $('diffSeg'), note = fmtNodes.find(e => e.classList.contains('pk-note'));
-  const fmtOnly = fmtNodes.filter(e => e !== cpuT && e !== diff && e !== note);
-  const mkLo = nodes => { const d = h('div', { class: 'loadout' }); d.append(...nodes); return d; };
-  const pnl = (...c) => h('div', { class: 'rl-panel' }, ...c);
-  const tagB = h('button', { class: 'btn ghost', text: '🏓 Sigla na raquete' }); tagB.onclick = () => openSettings('perfil');
-
-  const pHome = h('div', { class: 'rl-page in', id: 'pg-home' });
-  const acctCard = $('acctCard'), progCard = $('progCard');
-  const goPlay = h('button', { class: 'btn', text: '▶  JOGAR AGORA' }); goPlay.onclick = () => showPage('play');
-  pHome.append(h('div', { class: 'rl-grid2' },
-    pnl(h('div', { class: 'rl-h' }, '👤 Sua conta'), acctCard),
-    pnl(h('div', { class: 'rl-h' }, '🎯 Progresso', h('small', { text: 'MISSÕES DE HOJE' })), progCard, goPlay)));
-
-  const pPlay = h('div', { class: 'rl-page', id: 'pg-play' });
-  const mode = (ic, title, desc, ...c) => h('div', { class: 'rl-panel rl-mode' }, h('div', { class: 'ic', text: ic }), h('div', { class: 'rl-h', text: title }), h('p', { text: desc }), ...c);
-  const codeRow = menu.querySelector('.row');
-  const divider = menu.querySelector('.divider'); if (divider) divider.remove();
-  const tut = $('btnTut');
-  pPlay.append(
-    h('div', { class: 'rl-modes' },
-      mode('🤝', 'Com amigo', 'Crie uma sala e mande o link, ou entre com o código. Dá para só assistir também.', $('btnCreate'), codeRow, $('btnWatch')),
-      mode('⚔️', 'Ranqueada', 'Fila automática com gente do seu nível. Vale elo e divisão.', $('btnRanked'), $('btnRanking')),
-      mode('🤖', 'Treino', 'Contra a CPU, no nível que você escolher.', cpuT ? mkLo([cpuT, diff]) : null, $('btnSolo'), tut)),
-    pnl(h('div', { class: 'rl-h' }, '🏟️ Partida', h('small', { text: 'CENÁRIO E FORMATO' })), h('div', { class: 'rl-grid2' }, mkLo(arNodes), mkLo([...fmtOnly, note].filter(Boolean)))));
-
-  const pGarage = h('div', { class: 'rl-page', id: 'pg-garage' });
-  pGarage.append(h('div', { class: 'rl-grid2' },
-    pnl(h('div', { class: 'rl-h' }, '🏓 Raquete'), mkLo(rkNodes)),
-    pnl(h('div', { class: 'rl-h' }, '⚪ Bolinha e sigla'), mkLo(bsNodes), h('div', { class: 'stack' }, tagB))));
-
-  if (lo) lo.remove();
-  const rest = [...menu.children]; if (rest.length) console.info('menu: sobrou', rest.map(e => e.id || e.className));
-  const keep = h('div', { class: 'hidden', id: 'rlRest' }); keep.append(...rest);
-  menu.append(top, nav, h('div', { class: 'rl-pages' }, pHome, pPlay, pGarage),
-    keep, h('div', { class: 'rl-foot' }, h('span', {}, h('kbd', { text: 'ESC' }), 'VOLTAR'), h('span', { class: 'rl-sp' }), h('span', { text: 'STEAM É MARCA DA VALVE · JOGO NÃO AFILIADO' })));
-  menu.querySelector('.rl-nav button[data-p="home"]').classList.add('on');
-  // os cliques continuam funcionando nos seletores que mudaram de lugar
-  for (const d of [pPlay, pGarage]) d.addEventListener('click', e => {
-    const b = e.target.closest('.pk-arrow'); if (b) pickMove(b.dataset.k, +b.dataset.d);
-    const f = e.target.closest('#fmtSeg button'); if (f) { pickState.fmt = +f.dataset.f; store.set('pp_fmt', String(pickState.fmt)); renderPick(); }
-    const bs = e.target.closest('#bsList .bs');
-    if (bs) { const sk = ballSkinById(bs.dataset.b); if (skinLocked(sk)) toast(`🔒 A bolinha ${sk.name} libera no nível ${SKIN_LV[sk.id]}`); else { applyBallSkin(sk); renderPick(); } }
-  });
+  lobby.prepend(bg, h('div', { class: 'rl-shade' }));
+  // o que existia no menu vai para um depósito escondido (os ids e eventos continuam valendo)
+  const hold = h('div', { id: 'fuHold' }); hold.append(...menu.children); card.append(hold);
+  const ic = (txt, title, fn, id) => { const b = h('button', { class: 'fu-ib', title, 'aria-label': title, id }, txt); b.onclick = fn; return b; };
+  const frB = ic('👥', 'Amigos', () => openFriends(), 'fuFr'); frB.append(h('span', { class: 'bd hidden', id: 'fuFrBadge' }));
+  const club = h('div', { class: 'fu-club', title: 'Perfil' }, h('div', { class: 'fu-crest', id: 'fuCrest' }), h('b', { id: 'fuName' }), h('span', { class: 'fu-key', id: 'fuEst' }));
+  club.onclick = () => { UI.stack = []; showPage('profile'); };
+  const top = h('div', { class: 'fu-top' }, club, h('i', { class: 'fu-sep' }),
+    h('span', { class: 'fu-cur elo', title: 'Elo' }, h('i', { text: 'E' }), h('span', { id: 'fuElo' })),
+    h('span', { class: 'fu-cur xp', title: 'XP total' }, h('i', { text: 'XP' }), h('span', { id: 'fuXp' })),
+    h('span', { class: 'fu-cur st', title: 'Missões de hoje' }, h('i', { text: '★' }), h('span', { id: 'fuStars' })),
+    h('i', { class: 'fu-sp' }),
+    h('span', { class: 'fu-timer', title: 'Novas missões em' }, '⏱ ', h('span', { id: 'fuTimer' })),
+    h('span', { class: 'fu-mbar', title: 'Missões de hoje' }, h('i', { id: 'fuMisBar' })), h('span', { id: 'fuMisTxt' }), h('i', { class: 'fu-sep s2' }),
+    h('span', { class: 'fu-lvl', id: 'fuLvl', title: 'Nível' }), frB, ic('🏆', 'Ranking', () => openRanking()), ic('⚙️', 'Ajustes', () => openSettings()));
+  const tabs = h('div', { class: 'fu-tabs', role: 'tablist' }, h('span', { class: 'fu-key', text: 'Q' }),
+    ...TABS.map(([id, label]) => { const b = h('button', { 'data-t': id, role: 'tab', text: label }); b.onclick = () => { ensureAudio(); futTab(id); }; return b; }), h('span', { class: 'fu-key', text: 'E' }));
+  const hints = h('div', { class: 'fu-hints' }, h('span', {}, h('i', { class: 'fu-key', text: '⏎' }), 'Selecionar'), h('span', {}, h('i', { class: 'fu-key', text: 'Esc' }), 'Voltar'),
+    h('span', {}, h('i', { class: 'fu-key', text: '↔' }), 'Mover'), h('span', {}, h('i', { class: 'fu-key', text: 'Q' }), h('i', { class: 'fu-key', text: 'E' }), 'Abas'),
+    h('i', { class: 'fu-sp' }), h('small', { text: 'STEAM É MARCA DA VALVE · JOGO NÃO AFILIADO' }));
+  menu.append(top, tabs, h('div', { id: 'fuMain' }), hints);
+  for (const id of ['cfgScreen', 'frScreen', 'rankScreen', 'admScreen']) { const s = $(id); if (s) { s.classList.add('fuov'); s.querySelectorAll('h2').forEach(x => { x.textContent = x.textContent.replace(/^[^\p{L}]+/u, ''); }); } }
+  // teclado: setas movem, Enter escolhe, Esc volta, Q/E trocam de aba
   window.addEventListener('keydown', e => {
-    if (e.key !== 'Escape' || $('lobby').classList.contains('hidden')) return;
-    if (!$('cfgScreen').classList.contains('hidden') || !$('frScreen').classList.contains('hidden')) return;
-    if (UI.page !== 'home') showPage('home');
+    if ($('lobby').classList.contains('hidden') || S.phase !== 'lobby') return;
+    const ov = document.querySelector('.screen.fuov:not(.hidden)');
+    if (ov) { if (e.key === 'Escape' && ov.id !== 'cfgScreen') { if (ov.id === 'frScreen') closeFriends(); else ov.classList.add('hidden'); } return; }
+    if ($('authGate') && !$('authGate').classList.contains('hidden')) return;
+    if (!$('menu') || $('menu').classList.contains('hidden')) return;
+    const typing = /INPUT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName);
+    if (e.key === 'Escape') { if (typing) document.activeElement.blur(); else futBack(); return; }
+    if (typing) return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); futSel(UI.sel + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); futSel(UI.sel - 1); }
+    else if (e.key === 'Enter' && document.activeElement === document.body) { const t = document.querySelectorAll('#fuMain .fu-tile')[UI.sel]; if (t) t.click(); }
+    else if (e.key === 'q' || e.key === 'e' || e.key === 'Q' || e.key === 'E') {
+      const order = TABS.map(t => t[0]), cur = order.indexOf(TAB_OF[UI.page] || UI.page);
+      const nx = order[(cur + (e.key.toLowerCase() === 'e' ? 1 : -1) + order.length) % order.length]; futTab(nx);
+    }
   });
-  renderTopProfile();
-  setInterval(() => { if (!$('lobby').classList.contains('hidden')) renderTopProfile(); }, 3000);
+  window.__futReady = true;
+  renderFut(true);
+  setInterval(() => { if (!$('lobby').classList.contains('hidden')) renderTop(); }, 5000);
 }
+// quando o perfil, as missões ou a raquete mudam, o menu se atualiza
+function renderTopProfile() { if (window.__futReady && $('fuMain')) { const a = document.activeElement; if (a && a.id === 'inCode') renderTop(); else renderFut(); } }
 
 
 /* =====================================================================
@@ -5103,7 +5394,7 @@ function gateSync() {
   renderGate();
 }
 function menuEnterFx() {                                   // os botões do menu entram de novo, em cascata
-  document.querySelectorAll('.rl-nav button, .rl-top > *, .rl-page.in .rl-panel').forEach((el, i) => {
+  document.querySelectorAll('.fu-top, .fu-tabs, .fu-head > *, #fuMain .fu-tile').forEach((el, i) => {
     el.style.animation = 'none'; void el.offsetWidth;
     el.style.animation = `rlIn .55s cubic-bezier(.2,.9,.3,1) ${0.25 + i * 0.045}s both`;
   });
@@ -5516,4 +5807,4 @@ initUiFx();
 const verParam = new URLSearchParams(location.search).get('ver');
 if (roomParam) gateAfter(() => { if (S.phase === 'lobby') joinRoom(roomParam); });
 if (verParam && !roomParam) { $('inCode').value = verParam.toUpperCase(); gateAfter(() => { if (S.phase === 'lobby') joinSpectate(verParam); }); }
-window.__pp = { GATE, gateSync, UI, showPage, menuMusic, updateMenuMusic, FR, loadFriends, openFriends, socialPoll, showInvite, SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+window.__pp = { GATE, gateSync, UI, showPage, futGo, futTab, renderFut, AVATARS, avatarURI, setAvatar, menuMusic, updateMenuMusic, FR, loadFriends, openFriends, socialPoll, showInvite, SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
