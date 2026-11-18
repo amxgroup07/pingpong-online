@@ -60,6 +60,13 @@ Todos os botões e cartões reagem ao hover e ao clique (subida leve, brilho, "o
 - Fundo: a arte do jogo (`assets/menu-bg.jpg`; no celular, a versão menor) com zoom lento. Enquanto o menu está na tela, o 3D não é desenhado.
 - **Música do menu:** `assets/menu-music.mp3`, em loop e baixa, só depois do login; mais baixa na tela de resultado e some na partida (a menos que "música durante a partida" esteja ligada). Segue o volume de **Música** e o 🔇. Os arquivos vêm do jsDelivr fixados no commit (`ASSET_SHA` no `game.js`).
 
+## Skins de raquete (25)
+Cada raquete (Clássica, Víbora, Foguete, Muralha, Raiz e Dragão Dourado) pode usar qualquer uma das 25 skins; a skin muda só o visual (frente e verso da borracha), não a velocidade, o efeito nem o controle. Na **Garagem**, clique numa raquete para equipá-la e abrir as skins dela; "Original" volta ao visual padrão. A escolha fica salva por raquete (`pp_rskins`) e vai para o adversário e para quem assiste (campo `sk` no `hello` e no `sinit`). A sigla aparece pequena embaixo da arte.
+
+Skins: Caçador Galáctico, Camisa 10, Artilheiro, Viking do Gol, Paredão, Kraken Abissal, Fênix, Lobo Lunar, Trovão, Neve Eterna, Biohazard, Neon Retrô, Pixel Arcade, Steampunk, Astronauta, Esports Pro, Tropical, Geométrica, Camuflagem, Chamas Azuis, Doces & Sprinkles, Gato Ninja, Robô V4, Dourada Luxo e Arco-íris Holográfica (raridades Comum, Rara, Épica e Lendária, só de enfeite por enquanto; todas liberadas).
+
+As artes ficam em `assets/skins/NN{f,b}.jpg` (512 px) e `NN{f,b}_s.jpg` (miniatura), servidas pelo jsDelivr fixadas no commit (`SKIN_SHA`). As 4 skins de futebol não usam nome, rosto nem marca de jogadores reais. Para trocar uma arte, substitua os dois arquivos, faça o commit e atualize `SKIN_SHA`.
+
 ## Avatares
 24 avatares desenhados no próprio jogo (SVG, sem arquivos): 14 jogadores e 10 mascotes (bolinha, raposa, panda, gato, robô, tigre, coruja, dragão, rei da mesa e chama). Tigre (nível 5), Coruja (8), Dragão (10), Rei da mesa (15) e Chama (20) liberam por nível. Escolha em **Perfil** (clique no escudo ou no cartão Perfil); quem entrou pela Steam pode voltar para a foto da Steam. O avatar fica salvo na conta (`profiles.avatar_pick`, função `set_avatar`) e aparece na barra do clube, nos amigos e no ranking.
 

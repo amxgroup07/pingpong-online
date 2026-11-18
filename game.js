@@ -1241,6 +1241,60 @@ function rubberTexFor(hex, kind, logo, sub, ptag = '') {
     return { top, side };
   });
 }
+/* ---------- skins de raquete: 25 visuais para qualquer raquete (a força continua a da raquete) ---------- */
+const SKIN_SHA = '6e782f5f8739cb5e2929562123a8a4f8422cd487';
+const SKIN_BASES = [`https://cdn.jsdelivr.net/gh/amxgroup07/pingpong-online@${SKIN_SHA}/assets/skins/`, `https://raw.githubusercontent.com/amxgroup07/pingpong-online/${SKIN_SHA}/assets/skins/`];
+const RSKINS = [
+  ['Caçador Galáctico', '#c9542a', 'Épica'], ['Camisa 10', '#1f8a3a', 'Épica'], ['Artilheiro', '#c8202e', 'Épica'], ['Viking do Gol', '#3d8fe0', 'Épica'], ['Paredão', '#2f8a3a', 'Épica'],
+  ['Kraken Abissal', '#1fa3b5', 'Rara'], ['Fênix', '#e0462a', 'Rara'], ['Lobo Lunar', '#3a5ab0', 'Rara'], ['Trovão', '#e0a93a', 'Rara'], ['Neve Eterna', '#9fb6d8', 'Rara'],
+  ['Biohazard', '#a8d12a', 'Épica'], ['Neon Retrô', '#e0408a', 'Rara'], ['Pixel Arcade', '#2a2a4a', 'Rara'], ['Steampunk', '#a0602a', 'Épica'], ['Astronauta', '#6a4ab0', 'Épica'],
+  ['Esports Pro', '#d02a2a', 'Rara'], ['Tropical', '#2ab0a0', 'Comum'], ['Geométrica', '#8a3ae0', 'Comum'], ['Camuflagem', '#5a6a3a', 'Comum'], ['Chamas Azuis', '#2a7ae0', 'Rara'],
+  ['Doces & Sprinkles', '#f080b0', 'Comum'], ['Gato Ninja', '#e06a2a', 'Rara'], ['Robô V4', '#6a8aa8', 'Épica'], ['Dourada Luxo', '#d4a83a', 'Lendária'], ['Arco-íris Holográfica', '#b0a0e0', 'Lendária'],
+].map(([name, c, rar], i) => ({ id: 's' + String(i + 1).padStart(2, '0'), n: String(i + 1).padStart(2, '0'), name, c, rar }));
+const RAR_COL = { Comum: '#9aa3b5', Rara: '#3d9bff', 'Épica': '#b06bff', 'Lendária': '#ffc23a' };
+const skinById = id => RSKINS.find(s => s.id === id) || null;
+const skinUrl = (s, side, small, alt = 0) => `${SKIN_BASES[alt]}${s.n}${side}${small ? '_s' : ''}.jpg`;
+let rskinSel = {}; try { rskinSel = JSON.parse(store.get('pp_rskins', '{}')) || {}; } catch (e) { rskinSel = {}; }
+const mySkinFor = r => (r && skinById(rskinSel[r.id]) ? rskinSel[r.id] : '');
+function setRacketSkin(r, id) { if (id) rskinSel[r.id] = id; else delete rskinSel[r.id]; store.set('pp_rskins', JSON.stringify(rskinSel)); }
+// imagens (carregadas uma vez; as texturas se redesenham quando chegam)
+const SKIN_IMG = {};
+function skinImg(s, side) {
+  const k = s.id + side; if (SKIN_IMG[k]) return SKIN_IMG[k];
+  const o = { img: new Image(), ready: false, cbs: [] };
+  o.p = new Promise(res => {
+    o.img.crossOrigin = 'anonymous';
+    o.img.onload = () => { o.ready = true; o.cbs.forEach(f => f()); res(true); };
+    o.img.onerror = () => { if (!o.alt) { o.alt = 1; o.img.src = skinUrl(s, side, false, 1); } else res(false); };
+    o.img.src = skinUrl(s, side, false, 0);
+  });
+  return (SKIN_IMG[k] = o);
+}
+const skinReady = id => { const s = skinById(id); return s ? Promise.all([skinImg(s, 'f').p, skinImg(s, 'b').p]) : Promise.resolve(); };
+function skinTexFor(id, side, ptag = '') {
+  const s = skinById(id);
+  return rtx(`sk_${id}_${side}_${ptag}`, () => {
+    const im = skinImg(s, side);
+    const c = document.createElement('canvas'); c.width = c.height = 512;
+    const g = c.getContext('2d');
+    const draw = () => {
+      g.fillStyle = s.c; g.fillRect(0, 0, 512, 512);
+      if (im.ready) g.drawImage(im.img, 0, 0, 512, 512);
+      const sh = g.createRadialGradient(190, 150, 10, 190, 150, 360);       // brilho leve de borracha
+      sh.addColorStop(0, 'rgba(255,255,255,.08)'); sh.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = sh; g.fillRect(0, 0, 512, 512);
+      if (ptag) {                                                          // sigla pequena embaixo, sem tapar a arte
+        g.font = '900 40px system-ui'; const tw = g.measureText(ptag).width + 34;
+        g.fillStyle = 'rgba(0,0,0,.55)'; g.beginPath(); g.roundRect ? g.roundRect(256 - tw / 2, 420, tw, 52, 26) : g.rect(256 - tw / 2, 420, tw, 52); g.fill();
+        g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(ptag, 256, 447);
+      }
+    };
+    draw();
+    const top = new THREE.CanvasTexture(c); top.colorSpace = THREE.SRGBColorSpace; top.anisotropy = 8;
+    if (!im.ready) im.cbs.push(() => { draw(); top.needsUpdate = true; });
+    const side_ = canvasTex(16, 64, (gg, w, h) => { gg.fillStyle = s.c; gg.fillRect(0, 0, w, 18); gg.fillStyle = '#efb43c'; gg.fillRect(0, 18, w, h - 18); });
+    return { top, side: side_ };
+  });
+}
 function loftGeometry(secs, N = 28, ex = 2.6) {        // cabo: seções ovais com largura/espessura variáveis
   const pos = [], uv = [], idx = [], rows = secs.length;
   for (let i = 0; i < rows; i++) {
@@ -1291,7 +1345,7 @@ const RUBBER_MAT = {
   gold: { roughness: 0.5, metalness: 0.25, clearcoat: 0.15, clearcoatRoughness: 0.4 },
 };
 // monta a raquete; o lado colorido fica para a câmera de quem segura (sua raquete) ou para você (a do adversário)
-function buildRacket(def, mine, opacity = 1, ptag = '') {
+function buildRacket(def, mine, opacity = 1, ptag = '', skin = '') {
   const L = def.look, root = new THREE.Group(), pivot = new THREE.Group(); root.add(pivot);
   const racket = new THREE.Group(); racket.scale.setScalar(L.scale || PADDLE_SCALE); pivot.add(racket);
   const base = opacity < 1 ? { transparent: true, opacity } : {};
@@ -1300,8 +1354,9 @@ function buildRacket(def, mine, opacity = 1, ptag = '') {
   const colored = mine ? 1 : -1, thin = L.rubber === 'hardbat';
   for (const sideZ of [-1, 1]) {
     const isCol = sideZ === colored, kind = isCol ? L.rubber : (thin ? 'hardbat' : 'smooth');
-    const t = rubberTexFor(isCol ? L.color : 0x1a1a1c, kind, L.logo, L.sub, isCol ? ptag : '');
-    const top = new THREE.MeshPhysicalMaterial({ map: t.top, ...RUBBER_MAT[kind], ...base });
+    const sk = skinById(skin);
+    const t = sk ? skinTexFor(sk.id, isCol ? 'f' : 'b', isCol ? ptag : '') : rubberTexFor(isCol ? L.color : 0x1a1a1c, kind, L.logo, L.sub, isCol ? ptag : '');
+    const top = new THREE.MeshPhysicalMaterial({ map: t.top, ...RUBBER_MAT[sk ? 'smooth' : kind], ...base });
     const edge = new THREE.MeshStandardMaterial({ map: t.side, roughness: 0.9, ...base });
     const rb = new THREE.Mesh(thin ? rubberGeoThin : rubberGeo, [top, edge]);
     rb.position.z = sideZ * BLADE_T / 2;
@@ -1330,8 +1385,8 @@ function buildRacket(def, mine, opacity = 1, ptag = '') {
   return { root, pivot, fx };
 }
 function disposeRacket(root) { root.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); }); }
-function makePaddle(def, mine, ptag = '') {
-  const { root, pivot, fx } = buildRacket(def, mine, mine ? 0.88 : 1, ptag);
+function makePaddle(def, mine, ptag = '', skin = '') {
+  const { root, pivot, fx } = buildRacket(def, mine, mine ? 0.88 : 1, ptag, skin);
   scene.add(root);
   root.userData = { pivot, fx, swing: 0, vx: 0, vz: 0, lx: 0, lz: 0, tag: ptag };
   return root;
@@ -1339,13 +1394,16 @@ function makePaddle(def, mine, ptag = '') {
 let myRacket = racketById(store.get('pp_racket', 'classica'));
 if (!isUnlocked(myRacket)) myRacket = RACKETS[0];
 let oppRacket = RACKETS[0];
-let myPaddleMesh = makePaddle(myRacket, true, myTag());
+let oppSkin = '';
+let myPaddleMesh = makePaddle(myRacket, true, myTag(), mySkinFor(myRacket));
 let oppPaddleMesh = makePaddle(oppRacket, false);
-function setPaddle(which, def, ptag) {
+function setPaddle(which, def, ptag, skin) {
   const mine = which === 'me', old = mine ? myPaddleMesh : oppPaddleMesh;
   if (ptag === undefined) ptag = mine ? myTag() : oppTag;
-  if (!mine) oppTag = ptag;
-  const m = makePaddle(def, mine, ptag);
+  if (skin === undefined) skin = mine ? (S.mode === 'spec' ? '' : mySkinFor(def)) : oppSkin;
+  skin = skinById(skin) ? skin : '';
+  if (!mine) { oppTag = ptag; oppSkin = skin; }
+  const m = makePaddle(def, mine, ptag, skin);
   m.visible = old.visible; m.position.copy(old.position); m.rotation.copy(old.rotation);
   Object.assign(m.userData, { lx: old.userData.lx, lz: old.userData.lz });
   scene.remove(old); disposeRacket(old);
@@ -1995,7 +2053,7 @@ function joinRoom(code, tries = 0) {
 }
 function setupConn(c) {
   conn = c;
-  c.on('open', () => { send({ t: 'hello', rk: myRacket.id, tag: myTag(), name: acct.profile ? acct.profile.name : null }); if (isHost) { const f = S.ranked ? 1 : pickState.fmt; send({ t: 'start', arena: A.id, fmt: f }); startGame('online', 1, f); } });
+  c.on('open', () => { send({ t: 'hello', rk: myRacket.id, tag: myTag(), sk: mySkinFor(myRacket), name: acct.profile ? acct.profile.name : null }); if (isHost) { const f = S.ranked ? 1 : pickState.fmt; send({ t: 'start', arena: A.id, fmt: f }); startGame('online', 1, f); } });
   c.on('data', onMsg);
   c.on('close', () => onDisconnect());
   c.on('error', () => onDisconnect());
@@ -2011,7 +2069,7 @@ function onMsg(m) {
   if (!m || typeof m !== 'object') return;
   switch (m.t) {
     case 'start': if (m.arena && arenaById(m.arena).id !== A.id) buildArena(m.arena); startGame('online', -1, S.ranked ? 1 : ([1, 3, 5].includes(m.fmt) ? m.fmt : 1)); break;
-    case 'hello': if (RACKETS.some(r => r.id === m.rk)) setPaddle('op', racketById(m.rk), cleanTag(m.tag)); if (typeof m.name === 'string' && !S.ranked) S.oppName = m.name.slice(0, 20); refreshNames(); updateHud(); specInitAll(); break;
+    case 'hello': if (RACKETS.some(r => r.id === m.rk)) setPaddle('op', racketById(m.rk), cleanTag(m.tag), typeof m.sk === 'string' ? m.sk : ''); if (typeof m.name === 'string' && !S.ranked) S.oppName = m.name.slice(0, 20); refreshNames(); updateHud(); specInitAll(); break;
     case 'cheer': if (CHEERS.includes(m.e)) showCheer(m.e); break;
     case 'specs': showSpecCount(+m.n || 0); break;
     case 'pad':
@@ -2873,7 +2931,7 @@ function startGame(mode, side, format = 1) {
   document.body.classList.toggle('online', mode === 'online');
   if (mode === 'solo') {                        // a CPU escolhe uma raquete diferente a cada partida
     const pool = RACKETS.filter(r => r.id !== myRacket.id);
-    setPaddle('op', pool[(Math.random() * pool.length) | 0], 'CPU');
+    setPaddle('op', pool[(Math.random() * pool.length) | 0], 'CPU', '');
     botSay(3, 0, 2600);
   }
   updateHud();
@@ -2884,7 +2942,7 @@ function goMenu() {
   const wasOnline = S.mode === 'online';
   const wasSpec = S.mode === 'spec';
   S.mode = null; S.phase = 'lobby'; S.ballVisible = false; S.ranked = null; S.oppName = null;
-  if (wasSpec) { document.body.classList.remove('spectating'); setPaddle('me', myRacket); setPaddle('op', RACKETS[0], ''); }
+  if (wasSpec) { document.body.classList.remove('spectating'); setPaddle('me', myRacket); setPaddle('op', RACKETS[0], '', ''); }
   document.body.classList.remove('online'); renderSpecUI(); showSpecCount(0);
   stopEnd(); endReplay(false); RP.pending = false; RP.rec = null; S.paused = false; music.duck();
   S.tutorial = null; document.body.classList.remove('tutorial'); renderTutorial(); landMark.visible = false; renderProgress();
@@ -2919,7 +2977,7 @@ $('btnQuality').onclick = () => { perf.checked = true; applyQuality(Q.level === 
    ===================================================================== */
 const pickState = { rk: Math.max(0, RACKETS.indexOf(myRacket)), ar: Math.max(0, ARENAS.findIndex(a => a.id === store.get('pp_arena', 'neon'))), fmt: [1, 3, 5].includes(+store.get('pp_fmt', '1')) ? +store.get('pp_fmt', '1') : 1, diff: store.get('pp_diff', 'medio') };
 const thumbs = {};
-function makeThumbs() {                           // miniaturas 3D das raquetes (renderizadas uma vez)
+function makeThumbs(list = RACKETS.map(r => [r, mySkinFor(r)]), out = thumbs) {   // miniaturas 3D das raquetes
   try {
     const tr = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     tr.setPixelRatio(1); tr.setSize(150, 190, false);
@@ -2929,10 +2987,10 @@ function makeThumbs() {                           // miniaturas 3D das raquetes 
     const d1 = new THREE.DirectionalLight(0xffffff, 2.4); d1.position.set(1.5, 2, 3); sc.add(d1);
     const d2 = new THREE.DirectionalLight(0xff7ab0, 1.0); d2.position.set(-2, 0.5, -1); sc.add(d2);
     const c = new THREE.PerspectiveCamera(30, 150 / 190, 0.01, 10); c.position.set(0, -0.06, 0.8); c.lookAt(0, -0.06, 0);
-    for (const r of RACKETS) {
-      const { root } = buildRacket(r, true, 1, myTag());
+    for (const [r, sk] of list) {
+      const { root } = buildRacket(r, true, 1, myTag(), sk);
       root.rotation.set(0.12, -0.5, -0.3); sc.add(root);
-      tr.render(sc, c); thumbs[r.id] = tr.domElement.toDataURL('image/png');
+      tr.render(sc, c); out[r.id] = tr.domElement.toDataURL('image/png');
       sc.remove(root); disposeRacket(root);
     }
     tr.dispose(); if (tr.forceContextLoss) tr.forceContextLoss();
@@ -3058,6 +3116,7 @@ function initLobbyUI() {
   }
   renderPick();
   setTimeout(() => { makeThumbs(); renderPick(); }, 60);
+  Promise.all(RACKETS.map(r => skinReady(mySkinFor(r)))).then(() => { makeThumbs(); renderPick(); if (window.__futReady) renderFut(); });
 }
 initLobbyUI();
 /* =====================================================================
@@ -4397,8 +4456,8 @@ function addSpectator(c) {
 function specInit() {
   return {
     t: 'sinit', arena: A.id, fmt: S.format, phase: S.phase,
-    host: { rk: myRacket.id, tag: myTag(), name: acct.profile ? acct.profile.name : (myTag() || 'Jogador 1') },
-    guest: conn ? { rk: oppRacket.id, tag: oppTag, name: S.oppName || oppTag || 'Jogador 2' } : null,
+    host: { rk: myRacket.id, tag: myTag(), sk: mySkinFor(myRacket), name: acct.profile ? acct.profile.name : (myTag() || 'Jogador 1') },
+    guest: conn ? { rk: oppRacket.id, tag: oppTag, sk: oppSkin, name: S.oppName || oppTag || 'Jogador 2' } : null,
     score: S.score, games: S.games, gameNo: S.gameNo, gameScores: S.gameScores, ranked: !!S.ranked,
   };
 }
@@ -4464,8 +4523,8 @@ function startSpectating(m) {
 }
 function specApplyPlayers(m) {
   SPV.host = m.host; SPV.guest = m.guest;
-  if (m.host && RACKETS.some(r => r.id === m.host.rk)) setPaddle('me', racketById(m.host.rk), cleanTag(m.host.tag));
-  if (m.guest && RACKETS.some(r => r.id === m.guest.rk)) setPaddle('op', racketById(m.guest.rk), cleanTag(m.guest.tag));
+  if (m.host && RACKETS.some(r => r.id === m.host.rk)) setPaddle('me', racketById(m.host.rk), cleanTag(m.host.tag), String(m.host.sk || ''));
+  if (m.guest && RACKETS.some(r => r.id === m.guest.rk)) setPaddle('op', racketById(m.guest.rk), cleanTag(m.guest.tag), String(m.guest.sk || ''));
   oppPaddleMesh.visible = myPaddleMesh.visible = true;
   $('nameL').textContent = (m.host && m.host.name || 'JOGADOR 1').slice(0, 20).toUpperCase();
   $('nameR').textContent = m.guest ? (m.guest.name || 'JOGADOR 2').slice(0, 20).toUpperCase() : 'AGUARDANDO…';
@@ -4997,9 +5056,18 @@ function futPage(id) {
       { title: v.name, art: futCpuArt(k, i), foot: [['XP', `×${v.xp}`], ['Reflexo', '▮'.repeat(i + 1) + '▯'.repeat(3 - i)], ['Erros', ['Muitos', 'Alguns', 'Poucos', 'Raros'][i]]], sel: pickState.diff === k, go: () => { pickState.diff = k; store.set('pp_diff', k); renderPick(); $('btnSolo').click(); } })), opts: true };
     case 'garage': return { title: 'Garagem', sub: 'Sua raquete, a bolinha e a sigla gravada na borracha.', chips, tiles: RACKETS.filter(isListed).map(r => {
       const lk = !isUnlocked(r), i = RACKETS.indexOf(r);
-      return { title: r.name, art: futRacketArt(r), foot: [['Velocidade', r.speed], ['Efeito', r.spin], ['Controle', r.ctrl]], small: true, sel: myRacket.id === r.id, badge: myRacket.id === r.id ? 'EQUIPADA' : '',
-        locked: lk ? lockText(r) : '', go: () => { pickState.rk = i; if (isUnlocked(r)) { store.set('pp_racket', r.id); setPaddle('me', r); toast(`${r.name} equipada`); } renderPick(); renderFut(); } };
+      const sk = skinById(mySkinFor(r));
+      return { title: r.name, art: futRacketArt(r), foot: [['Velocidade', r.speed], ['Efeito', r.spin], ['Controle', r.ctrl]], small: true, sel: myRacket.id === r.id, badge: myRacket.id === r.id ? 'EQUIPADA' : '', skin: sk ? sk.name : 'Original',
+        locked: lk ? lockText(r) : '', go: () => { pickState.rk = i; if (isUnlocked(r)) { store.set('pp_racket', r.id); setPaddle('me', r); } renderPick(); UI.skinRk = r.id; futGo('skins'); } };
     }), balls: true };
+    case 'skins': {
+      const r = racketById(UI.skinRk || myRacket.id), cur = mySkinFor(r);
+      const pick = id => { setRacketSkin(r, id); skinReady(id).then(() => { if (myRacket.id === r.id) setPaddle('me', r); makeThumbs([[r, id]]); renderFut(); }); renderFut(); toast(id ? `Skin ${skinById(id).name} na ${r.name}` : `${r.name} com o visual original`); };
+      return { title: r.name, crumb: 'Garagem', sub: 'Escolha a skin desta raquete. Muda só o visual: velocidade, efeito e controle continuam os mesmos. Seu adversário vê a skin.', chips: [['star', `${RSKINS.length} SKINS`], ['paint', cur ? skinById(cur).name : 'Original']], tiles: [
+        { title: 'Original', art: futRacketArt(r, true), foot: [['Raridade', 'Padrão'], ['Nº', '00'], ['Status', cur ? 'Usar' : 'Em uso']], small: true, sel: !cur, badge: !cur ? 'EM USO' : '', go: () => pick('') },
+        ...RSKINS.map(s => ({ title: s.name, art: futSkinArt(s), foot: [['Raridade', s.rar], ['Nº', s.n], ['Status', cur === s.id ? 'Em uso' : 'Usar']], small: true, sel: cur === s.id, rar: s.rar, badge: cur === s.id ? 'EM USO' : '', go: () => pick(s.id) })),
+      ] };
+    }
     case 'missions': return { title: 'Missões', sub: 'Três missões novas todo dia. Cada uma dá XP para subir de nível e liberar bolinhas e avatares.', chips, tiles: mi.ms.map(m => (
       { title: m.t, art: futMissionArt(m), foot: [['Progresso', `${Math.min(m.n, m.need)}/${m.need}`], ['Recompensa', `${m.xp} XP`, 1], ['Status', m.paid ? 'Feita ✔' : 'Aberta']], small: true, sel: m.paid, go: () => futGo('play') })) };
     case 'profile': return { title: 'Perfil', sub: 'Escolha seu avatar, nome e sigla. Seus amigos e o ranking veem o avatar.', chips, tiles: [], profile: true };
@@ -5010,10 +5078,19 @@ function futAvatarArt() { const v = myAvatar(), p = acct.profile; const n = avat
 function futCpuArt(k, i) {
   return uniq(`<svg class="fu-svg" viewBox="0 0 300 240" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><radialGradient id="gl"><stop offset="0" stop-color="${DIFF_COL[k]}" stop-opacity=".6"/><stop offset="1" stop-color="${DIFF_COL[k]}" stop-opacity="0"/></radialGradient></defs>${ART.treino.replace(/#38e1ff/g, DIFF_COL[k])}<g transform="translate(232 40)">${[0, 1, 2, 3].map(j => `<rect x="${j * 13}" y="${30 - j * 9}" width="9" height="${12 + j * 9}" rx="2" fill="${j <= i ? DIFF_COL[k] : 'rgba(255,255,255,.18)'}"/>`).join('')}</g></svg>`);
 }
-function futRacketArt(r) {
-  const c = '#' + (r.look.color >>> 0).toString(16).padStart(6, '0');
+const thumbsOrig = {};
+function futRacketArt(r, orig) {
+  const sk = !orig && skinById(mySkinFor(r)), c = sk ? sk.c : '#' + (r.look.color >>> 0).toString(16).padStart(6, '0');
   const d = h('div', { class: 'fu-rk', style: `--rc:${c}` });
-  if (thumbs[r.id]) d.append(h('img', { src: thumbs[r.id], alt: '' })); else setTimeout(() => { if (UI.page === 'garage') renderFut(); }, 400);
+  if (orig) {                                                   // miniatura sem skin (desenhada na hora, uma vez)
+    if (!thumbsOrig[r.id]) makeThumbs([[r, '']], thumbsOrig);
+    if (thumbsOrig[r.id]) d.append(h('img', { src: thumbsOrig[r.id], alt: '' }));
+  } else if (thumbs[r.id]) d.append(h('img', { src: thumbs[r.id], alt: '' })); else setTimeout(() => { if (UI.page === 'garage') renderFut(); }, 400);
+  return d;
+}
+function futSkinArt(s) {
+  const d = h('div', { class: 'fu-sk', style: `--rc:${s.c}` });
+  d.append(h('img', { class: 'b', src: skinUrl(s, 'b', true), alt: '', loading: 'lazy' }), h('img', { class: 'f', src: skinUrl(s, 'f', true), alt: '', loading: 'lazy' }));
   return d;
 }
 function futMissionArt(m) {
@@ -5022,7 +5099,7 @@ function futMissionArt(m) {
 }
 // ---------- navegação ----------
 const TABS = [['home', 'Início'], ['play', 'Jogar'], ['garage', 'Garagem'], ['friends', 'Amigos'], ['ranking', 'Ranking'], ['settings', 'Ajustes']];
-const TAB_OF = { friend: 'play', ranked: 'play', train: 'play', missions: 'home', profile: 'home' };
+const TAB_OF = { friend: 'play', ranked: 'play', train: 'play', missions: 'home', profile: 'home', skins: 'garage' };
 function futTab(id) {
   if (id === 'friends') return openFriends();
   if (id === 'ranking') return openRanking();
@@ -5055,7 +5132,7 @@ function renderFut(anim = false) {
   const head = h('div', { class: 'fu-head' + (anim ? ' in' : '') },
     P.crumb ? h('div', { class: 'fu-crumb' }, h('button', { class: 'fu-back', text: '‹ ' + P.crumb, onclick: futBack })) : null,
     h('h1', { class: 'fu-title', text: P.title }), h('p', { class: 'fu-sub', text: P.sub || '' }),
-    h('div', { class: 'fu-chips' }, ...(P.chips || []).map(([k, t]) => h('span', { class: 'fu-chip ' + k }, k === 'star' ? h('i', { class: 'fu-star' }) : h('i', { text: '⏱' }), t))));
+    h('div', { class: 'fu-chips' }, ...(P.chips || []).map(([k, t]) => h('span', { class: 'fu-chip ' + (k === 'paint' ? 'time' : k) }, k === 'star' ? h('i', { class: 'fu-star' }) : h('i', { text: k === 'paint' ? '🎨' : '⏱' }), t))));
   const row = h('div', { class: 'fu-tiles' + (P.tiles.some(t => t.small) ? ' many' : '') + (anim ? ' in' : '') });
   P.tiles.forEach((t, i) => row.append(futTile(t, i)));
   const ic = $('inCode'); if (ic && main.contains(ic)) $('fuHold').append(ic);   // o campo do código não pode sumir da página
@@ -5079,6 +5156,8 @@ function futTile(t, i) {
   art.insertAdjacentHTML('afterbegin', uniq(SWOOSH));        // a faixa laranja fica atrás da ilustração
   art.append(h('div', { class: 'fu-tt', text: t.title }));
   if (t.badge) art.append(h('span', { class: 'fu-badge', text: t.badge }));
+  if (t.skin) art.append(h('span', { class: 'fu-skn', text: '🎨 ' + t.skin }));
+  if (t.rar) art.append(h('span', { class: 'fu-rar', style: `--rr:${RAR_COL[t.rar]}`, text: t.rar.toUpperCase() }));
   const foot = h('div', { class: 'fu-foot' }, ...(t.foot || []).map(([l, v, star]) => h('div', {}, h('small', { text: l }), h('b', {}, String(v), star ? h('i', { class: 'fu-star' }) : null))));
   const b = h('button', { class: 'fu-tile' + (t.wide ? ' wide' : '') + (t.small ? ' small' : '') + (t.locked ? ' locked' : '') + (t.sel ? ' cur' : ''), 'data-i': i, 'aria-label': t.title }, art, foot);
   if (t.locked) b.append(h('div', { class: 'fu-lock' }, h('i', { text: '🔒' })), h('div', { class: 'fu-locktxt', text: t.locked }));
@@ -5210,6 +5289,12 @@ function initMenuShell() {
   .fu-tile.locked .fu-art > *:not(.fu-tt) { filter: grayscale(1) brightness(.45); } .fu-tile.locked .fu-tt { opacity: .7; }
   .fu-lock { position: absolute; top: 0; right: 0; width: 46px; height: 46px; background: linear-gradient(45deg, transparent 50%, rgba(220,226,236,.9) 50%); } .fu-lock i { position: absolute; top: 4px; right: 5px; font-style: normal; font-size: 13px; filter: grayscale(1) brightness(.2); }
   .fu-locktxt { position: absolute; left: 12px; right: 12px; top: 34%; text-align: center; font: 600 15px var(--fu-font); color: rgba(255,255,255,.85); }
+  .fu-sk { position: absolute; inset: 0; background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--rc) 50%, transparent), transparent 62%); }
+  .fu-sk img { position: absolute; top: 12%; width: 50%; aspect-ratio: 1; border-radius: 47%; object-fit: cover; box-shadow: 0 10px 22px rgba(0,0,0,.55), 0 0 0 3px rgba(0,0,0,.35); transition: transform .4s cubic-bezier(.2,.9,.3,1); }
+  .fu-sk img.f { left: 14%; transform: rotate(-10deg); z-index: 1; } .fu-sk img.b { right: 10%; top: 8%; transform: rotate(12deg) scale(.86); filter: brightness(.8); }
+  .fu-tile.sel .fu-sk img.f { transform: rotate(-4deg) scale(1.06); } .fu-tile.sel .fu-sk img.b { transform: rotate(18deg) scale(.9) translateX(6%); }
+  .fu-skn { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,.55); font: 700 12.5px var(--fu-font); padding: 3px 8px; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fu-rar { position: absolute; top: 10px; right: 10px; font: 800 12px var(--fu-font); letter-spacing: .08em; padding: 3px 8px; color: #0b0e14; background: var(--rr); }
   .fu-rk { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--rc) 45%, transparent), transparent 62%); }
   .fu-rk img { width: 78%; max-height: 92%; object-fit: contain; transform: rotate(-18deg); filter: drop-shadow(0 18px 24px rgba(0,0,0,.55)); transition: transform .45s cubic-bezier(.2,.9,.3,1); }
   .fu-tile.sel .fu-rk img { transform: rotate(-10deg) scale(1.06); }
@@ -5807,4 +5892,4 @@ initUiFx();
 const verParam = new URLSearchParams(location.search).get('ver');
 if (roomParam) gateAfter(() => { if (S.phase === 'lobby') joinRoom(roomParam); });
 if (verParam && !roomParam) { $('inCode').value = verParam.toUpperCase(); gateAfter(() => { if (S.phase === 'lobby') joinSpectate(verParam); }); }
-window.__pp = { GATE, gateSync, UI, showPage, futGo, futTab, renderFut, AVATARS, avatarURI, setAvatar, menuMusic, updateMenuMusic, FR, loadFriends, openFriends, socialPoll, showInvite, SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+window.__pp = { get oppSkin() { return oppSkin; }, RSKINS, GATE, gateSync, UI, showPage, futGo, futTab, renderFut, AVATARS, avatarURI, setAvatar, menuMusic, updateMenuMusic, FR, loadFriends, openFriends, socialPoll, showInvite, SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
