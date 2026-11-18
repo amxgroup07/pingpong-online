@@ -5477,6 +5477,7 @@ const AUTH_ERR = [
   [/email not confirmed/i, 'Falta confirmar o email. Abra o link que mandamos (veja também o spam).'],
   [/already registered|already been registered|user already exists/i, 'Esse email já tem conta. Entre com a senha.'],
   [/password should be at least|weak.?password|password is too weak/i, 'Senha fraca: use pelo menos 8 caracteres, misturando letras e números.'],
+  [/email rate limit|over_email_send/i, 'O envio de emails de confirmação está no limite agora. Tente de novo mais tarde ou entre com a Steam.'],
   [/rate limit|too many|security purposes/i, 'Muitas tentativas agora. Espere um minuto e tente de novo.'],
   [/invalid.*email|unable to validate email/i, 'Esse email não parece válido.'],
   [/signups not allowed|signup.*disabled/i, 'Cadastro por email desligado no momento. Use a Steam.'],
@@ -5629,6 +5630,11 @@ async function gateSubmit(f) {
     const m = e.message || '';
     err.textContent = /^(O nome|Digite)/.test(m) ? m : authMsg(e);
     gateBusy(f, false);
+    if (/email not confirmed/i.test(m)) {
+      const again = h('button', { class: 'ag-link', type: 'button', text: 'Reenviar email de confirmação' });
+      again.onclick = async () => { again.disabled = true; try { const sb = await sbLoad(); const { error } = await sb.auth.resend({ type: 'signup', email, options: { emailRedirectTo: location.origin + location.pathname } }); if (error) throw error; GATE.sentKind = 'signup'; GATE.view = 'sent'; renderGate(); } catch (x) { err.textContent = authMsg(x); again.disabled = false; } };
+      err.after(again);
+    }
     const card = document.querySelector('.ag-card'); card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
   }
 }
