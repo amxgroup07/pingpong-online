@@ -2534,7 +2534,8 @@ function ensureMenuMusic() {
 }
 function updateMenuMusic() {
   ensureMenuMusic(); const m = menuMusic; if (!m.el) return;
-  const want = muted || cfg.vMusic <= 0 ? 0 : S.phase === 'lobby' ? 0.8 : S.phase === 'over' ? 0.5 : cfg.musicInGame ? 0.3 : 0;
+  const gated = !acct.user && !(acct.failed && GATE.offline) && S.mode !== 'spec';   // na tela de login fica em silêncio
+  const want = muted || cfg.vMusic <= 0 || gated ? 0 : S.phase === 'lobby' ? 0.8 : S.phase === 'over' ? 0.5 : cfg.musicInGame ? 0.3 : 0;
   m.want = want;
   m.g.gain.setTargetAtTime(want, actx.currentTime, want > 0 ? 0.8 : 0.5);   // entra e sai devagar
   if (want > 0 && m.el.paused) m.el.play().catch(() => { });
@@ -3117,7 +3118,10 @@ async function initAccount() {
       if (r.error) lobbyMsg('Não deu para entrar com a Steam. Tente de novo.');
     } else if (h.get('steam_error') !== 'cancelado') lobbyMsg('A Steam não confirmou o login. Tente de novo.');
   }
-  if (/[?&]code=/.test(location.search)) setTimeout(() => history.replaceState(null, '', location.pathname), 1500);
+  const qs = new URLSearchParams(location.search), hs = new URLSearchParams(location.hash.slice(1));
+  const hadCode = qs.has('code'), wasReset = qs.get('reset') === '1';
+  const linkErr = qs.get('error_description') || hs.get('error_description') || qs.get('error') || hs.get('error');
+  if (hadCode || linkErr) setTimeout(() => history.replaceState(null, '', location.pathname + (wasReset && !linkErr ? '?reset=1' : '')), 1500);
   sb.auth.onAuthStateChange((ev, session) => {
     const u = session ? session.user : null;
     if ((u && u.id) !== (acct.user && acct.user.id)) { acct.user = u; refreshProfile(); window.__gateSync && window.__gateSync(); }
@@ -3125,6 +3129,8 @@ async function initAccount() {
   let data = { session: null };
   try { data = (await sb.auth.getSession()).data || data; } catch (e) { console.warn('sessão', e); }
   acct.user = data.session ? data.session.user : null; acct.checked = true;
+  if (linkErr) GATE.notice = { bad: true, text: /expired|invalid/i.test(linkErr) ? 'Esse link expirou ou já foi usado. Entre com sua senha ou peça um link novo.' : 'O link do email não funcionou: ' + linkErr.replace(/\+/g, ' ').slice(0, 80) };
+  else if (hadCode && !acct.user) GATE.notice = { text: wasReset ? 'Abra o link no mesmo navegador em que pediu a senha nova, ou peça outro link.' : '✔ Email confirmado! Agora entre com seu email e senha.' };
   window.__gateSync && window.__gateSync();
   refreshProfile();
 }
@@ -5092,6 +5098,7 @@ function gateSync() {
     if (!inGame) menuEnterFx();
   }
   if (!acct.user) GATE.passed = false;
+  if (actx) updateMenuMusic();
   if (acct.failed && GATE.offline && GATE.after.length) GATE.after.splice(0).forEach(f => f());
   renderGate();
 }
@@ -5110,6 +5117,7 @@ function renderGate() {
     return h('label', { class: 'ag-f' }, h('span', { text: label }), i);
   };
   const err = h('div', { class: 'ag-err', id: 'agErr', role: 'alert' });
+  const note = GATE.notice && (v === 'form') ? h('div', { class: 'ag-note' + (GATE.notice.bad ? ' bad' : ''), text: GATE.notice.text }) : null;
   const steamBtn = () => {
     const b = h('button', { type: 'button', class: 'ag-steam', id: 'agSteam', 'aria-label': 'Entrar com a Steam' });
     const im = h('img', { src: 'https://community.fastly.steamstatic.com/public/images/signinthroughsteam/sits_01.png', alt: 'Sign in through Steam', width: 180, height: 35 });
@@ -5183,7 +5191,7 @@ function renderGate() {
     if (!su) { const fl = h('button', { class: 'ag-link', type: 'button', text: 'Esqueci minha senha' }); fl.onclick = () => { GATE.email = f.email.value.trim(); GATE.tab = 'forgot'; renderGate(); }; f.append(fl); }
   }
   f.onsubmit = e => { e.preventDefault(); gateSubmit(f); };
-  body.append(steamBtn(), h('div', { class: 'ag-or' }, h('span', { text: 'ou com email' })), fg ? null : tabs, f);
+  body.append(note, steamBtn(), h('div', { class: 'ag-or' }, h('span', { text: 'ou com email' })), fg ? null : tabs, f);
 }
 function gateBusy(f, on) { GATE.busy = on; f.querySelectorAll('input,button').forEach(x => { x.disabled = on; }); const g = f.querySelector('.ag-go'); if (g) g.classList.toggle('busy', on); }
 async function gateSubmit(f) {
@@ -5255,6 +5263,8 @@ function initGate() {
   #authGate input:focus { border-color: #6fd3ff; box-shadow: 0 0 0 3px rgba(111,211,255,.15); background: rgba(255,255,255,.09); }
   .ag-eye { position: absolute; right: 8px; bottom: 7px; width: 32px; height: 30px; border: 0; border-radius: 8px; background: none; cursor: pointer; opacity: .5; font-size: 15px; } .ag-eye.on, .ag-eye:hover { opacity: 1; }
   .ag-err { min-height: 0; color: #ff8fa6; font-size: 13px; font-weight: 600; text-align: left; } .ag-err:empty { display: none; }
+  .ag-note { margin-bottom: 14px; padding: 10px 12px; border-radius: 11px; font-size: 13.5px; font-weight: 700; line-height: 1.4; background: rgba(47,209,107,.14); border: 1px solid rgba(47,209,107,.4); color: #9ff0bf; }
+  .ag-note.bad { background: rgba(255,90,120,.12); border-color: rgba(255,90,120,.4); color: #ffb3c4; }
   .ag-terms { font-size: 11px; opacity: .5; line-height: 1.45; text-align: left; }
   #authGate .btn { margin: 0; border-radius: 11px; } #authGate .btn:not(.ghost) { background: linear-gradient(180deg, #2d7dff, #1a56d6); box-shadow: 0 8px 24px rgba(31,111,255,.35); }
   #authGate .btn.ghost { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12); }
