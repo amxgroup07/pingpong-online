@@ -5191,7 +5191,7 @@ function renderGate() {
     if (!su) { const fl = h('button', { class: 'ag-link', type: 'button', text: 'Esqueci minha senha' }); fl.onclick = () => { GATE.email = f.email.value.trim(); GATE.tab = 'forgot'; renderGate(); }; f.append(fl); }
   }
   f.onsubmit = e => { e.preventDefault(); gateSubmit(f); };
-  body.append(note, steamBtn(), h('div', { class: 'ag-or' }, h('span', { text: 'ou com email' })), fg ? null : tabs, f);
+  body.append(...[note, steamBtn(), h('div', { class: 'ag-or' }, h('span', { text: 'ou com email' })), fg ? null : tabs, f].filter(Boolean));   // append nativo escreve "null" se passar vazio
 }
 function gateBusy(f, on) { GATE.busy = on; f.querySelectorAll('input,button').forEach(x => { x.disabled = on; }); const g = f.querySelector('.ag-go'); if (g) g.classList.toggle('busy', on); }
 async function gateSubmit(f) {
