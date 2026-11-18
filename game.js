@@ -2517,68 +2517,33 @@ function applyVolumes() {
   set(VOL.crowd, volGain(cfg.vCrowd)); set(VOL.music, volGain(cfg.vMusic) * 0.55); set(VOL.ui, volGain(cfg.vUi));
   music.duck();
 }
-/* ---------- música: synthwave tranquilo, gerado no navegador (sem arquivos) ----------
-   Am – F – C – G a 96 bpm: pad, baixo, arpejo e bateria leve. No menu toca mais alto;
-   durante a partida fica baixinho para não atrapalhar o som da bolinha. */
-const music = (() => {
-  const BPM = 96, STEP = 60 / BPM / 4;
-  const CH = [[57, 60, 64, 45], [53, 57, 60, 41], [55, 60, 64, 48], [55, 59, 62, 43]];   // acordes + nota do baixo
-  const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
-  let timer = 0, next = 0, step = 0;
-  function note(f, t, dur, type, vol, cut, out) {
-    const o = actx.createOscillator(), g = actx.createGain(), lp = actx.createBiquadFilter();
-    o.type = type; o.frequency.value = f; lp.type = 'lowpass'; lp.frequency.value = cut;
-    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.02, dur * 0.3));
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(lp).connect(g).connect(out); o.start(t); o.stop(t + dur + 0.05);
-  }
-  function pad(ch, t, dur, out) {
-    for (const m of ch.slice(0, 3)) for (const d of [-6, 6]) {
-      const o = actx.createOscillator(), g = actx.createGain(), lp = actx.createBiquadFilter();
-      o.type = 'sawtooth'; o.frequency.value = mtof(m); o.detune.value = d;
-      lp.type = 'lowpass'; lp.frequency.setValueAtTime(500, t); lp.frequency.linearRampToValueAtTime(1100, t + dur * 0.5); lp.frequency.linearRampToValueAtTime(600, t + dur);
-      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.018, t + 0.6); g.gain.setValueAtTime(0.018, t + dur - 0.5); g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.2);
-      o.connect(lp).connect(g).connect(out); o.start(t); o.stop(t + dur + 0.3);
-    }
-  }
-  function drum(kind, t, out) {
-    if (kind === 'kick') {
-      const o = actx.createOscillator(), g = actx.createGain();
-      o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.14);
-      g.gain.setValueAtTime(0.32, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
-      o.connect(g).connect(out); o.start(t); o.stop(t + 0.3); return;
-    }
-    const s = actx.createBufferSource(); s.buffer = noiseBuf;
-    const f = actx.createBiquadFilter(), g = actx.createGain(), hat = kind === 'hat';
-    f.type = hat ? 'highpass' : 'bandpass'; f.frequency.value = hat ? 7000 : 1800; f.Q.value = hat ? 0.7 : 0.9;
-    const dur = hat ? 0.05 : 0.16, v = hat ? 0.05 : 0.11;
-    g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(f).connect(g).connect(out); s.start(t, Math.random() * 2); s.stop(t + dur + 0.02);
-  }
-  function schedule() {
-    if (!actx || cfg.vMusic <= 0 || muted) { next = 0; return; }
-    const out = VOL.musicDuck;
-    if (!next || next < actx.currentTime) { next = actx.currentTime + 0.1; step = 0; }
-    while (next < actx.currentTime + 0.25) {
-      const bar = Math.floor(step / 16) % 4, s = step % 16, ch = CH[bar], t = next;
-      if (s === 0) pad(ch, t, STEP * 16, out);
-      if ([0, 3, 6, 8, 11, 14].includes(s)) note(mtof(ch[3] + (s === 6 || s === 14 ? 12 : 0)), t, STEP * 1.6, 'square', 0.05, 380, out);
-      if (s % 2 === 0) note(mtof(ch[(s / 2) % 3] + 12), t, STEP * 1.8, 'triangle', 0.035, 2600, out);
-      if (s === 0 || s === 8 || (s === 10 && bar === 3)) drum('kick', t, out);
-      if (s === 4 || s === 12) drum('snare', t, out);
-      if (s % 4 === 2) drum('hat', t, out);
-      next += STEP; step++;
-    }
-  }
-  return {
-    start() { if (!timer) timer = setInterval(schedule, 60); schedule(); this.duck(); },
-    duck() {                                    // volume pelo momento: menu cheio, partida baixinho
-      if (!actx || !VOL.musicDuck) return;
-      const v = S.phase === 'lobby' ? 1 : S.phase === 'over' ? 0.7 : cfg.musicInGame ? 0.22 : 0;
-      VOL.musicDuck.gain.setTargetAtTime(v, actx.currentTime, 0.6);
-    },
-  };
-})();
+const ASSET_SHA = '2cd58a011ade886d5584df1ff3adabc0d416923c';
+const ASSET_BASES = [`https://cdn.jsdelivr.net/gh/amxgroup07/pingpong-online@${ASSET_SHA}/assets/`, `https://raw.githubusercontent.com/amxgroup07/pingpong-online/${ASSET_SHA}/assets/`];
+/* ---------- música do menu: a faixa do jogo, baixinha, só no menu (e no resultado) ---------- */
+const menuMusic = { el: null, g: null, want: 0, tried: 0 };
+function ensureMenuMusic() {
+  if (!actx || menuMusic.el || !VOL.musicDuck) return;
+  const a = new Audio(); a.crossOrigin = 'anonymous'; a.loop = true; a.preload = 'auto';
+  a.src = ASSET_BASES[0] + 'menu-music.mp3';
+  a.onerror = () => { if (menuMusic.tried++ < 1) { a.src = ASSET_BASES[1] + 'menu-music.mp3'; a.load(); updateMenuMusic(); } };
+  try {
+    const src = actx.createMediaElementSource(a), g = actx.createGain(); g.gain.value = 0;
+    src.connect(g).connect(VOL.musicDuck);
+    Object.assign(menuMusic, { el: a, g });
+  } catch (e) { console.warn('música', e); }
+}
+function updateMenuMusic() {
+  ensureMenuMusic(); const m = menuMusic; if (!m.el) return;
+  const want = muted || cfg.vMusic <= 0 ? 0 : S.phase === 'lobby' ? 0.8 : S.phase === 'over' ? 0.5 : cfg.musicInGame ? 0.3 : 0;
+  m.want = want;
+  m.g.gain.setTargetAtTime(want, actx.currentTime, want > 0 ? 0.8 : 0.5);   // entra e sai devagar
+  if (want > 0 && m.el.paused) m.el.play().catch(() => { });
+  if (want === 0) setTimeout(() => { if (m.want === 0 && !m.el.paused) m.el.pause(); }, 2500);
+}
+const music = {
+  start() { this.duck(); },
+  duck() { if (!actx || !VOL.musicDuck) return; VOL.musicDuck.gain.setTargetAtTime(1, actx.currentTime, 0.1); updateMenuMusic(); },
+};
 document.addEventListener('pointerdown', () => ensureAudio(), { capture: true });
 
 /* =====================================================================
@@ -4681,6 +4646,7 @@ function closeFriends() { FR.open = false; $('frScreen').classList.add('hidden')
 function renderFrBadge() {
   const n = FR.incoming | 0, b = $('frBadge');
   if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
+  const b2 = $('rlFrBadge'); if (b2) { b2.textContent = n; b2.classList.toggle('hidden', !n); }
 }
 const agoTxt = d => {
   if (!d) return 'offline';
@@ -4854,6 +4820,243 @@ function initFriendsUI() {
 }
 
 /* =====================================================================
+   MENU PRINCIPAL (estilo Rocket League)
+   Fundo com a arte do jogo, navegação à esquerda com botões inclinados,
+   painéis que deslizam e barra de perfil em cima. Reaproveita os mesmos
+   botões e campos de antes (mesmos ids), só reorganizados.
+   ===================================================================== */
+const UI = { page: 'home' };
+
+// som de interface: "tic" no hover e "toc" no clique (bem baixinho)
+let uiHoverT = 0;
+function uiTick(kind) {
+  if (!actx || !VOL.ui) return;
+  const now = performance.now(); if (kind === 'hover' && now - uiHoverT < 60) return; uiHoverT = now;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(kind === 'hover' ? 2400 : 1200, t); o.frequency.exponentialRampToValueAtTime(kind === 'hover' ? 1800 : 600, t + 0.05);
+  g.gain.setValueAtTime(kind === 'hover' ? 0.012 : 0.035, t); g.gain.exponentialRampToValueAtTime(0.0001, t + (kind === 'hover' ? 0.04 : 0.09));
+  o.connect(g).connect(VOL.ui); o.start(t); o.stop(t + 0.1);
+}
+function showPage(id) {
+  if (UI.page === id) return;
+  const prev = $('pg-' + UI.page), next = $('pg-' + id); if (!next) return;
+  UI.page = id;
+  document.querySelectorAll('.rl-nav button').forEach(b => b.classList.toggle('on', b.dataset.p === id));
+  if (prev) { prev.classList.remove('in'); prev.classList.add('out'); setTimeout(() => prev.classList.remove('out'), 260); }
+  next.classList.add('in');
+  $('rlCrumb').textContent = { home: 'INÍCIO', play: 'JOGAR', garage: 'GARAGEM' }[id] || '';
+  if (id === 'garage' && typeof renderPick === 'function') renderPick();
+}
+function renderTopProfile() {
+  const p = acct.profile, L = levelOf(prog.xp);
+  $('rlLvl').textContent = L.lvl;
+  $('rlXpBar').style.width = `${Math.round(L.cur / L.need * 100)}%`;
+  $('rlName').textContent = p ? p.name : 'Visitante';
+  $('rlSub').textContent = p ? (p.games >= 10 ? `${division(p.rating, p.games).name} · ${p.rating} elo` : `Colocação ${p.games || 0}/10 · ${p.rating} elo`) : 'Entre para salvar seu progresso';
+  const av = $('rlAv'); av.textContent = '';
+  if (p && p.avatar && /^https:\/\//.test(p.avatar)) { const i = h('img', { src: p.avatar, alt: '', referrerpolicy: 'no-referrer' }); i.onerror = () => { av.textContent = (p.name || '?')[0].toUpperCase(); }; av.append(i); }
+  else av.textContent = (p ? p.name : '?')[0].toUpperCase();
+  const fb = $('rlFr'); if (fb) fb.classList.toggle('dim', !p);
+  const b = $('rlFrBadge'); if (b) { const n = FR.incoming | 0; b.textContent = n; b.classList.toggle('hidden', !n); }
+}
+function initMenuShell() {
+  const st = document.createElement('style');
+  st.textContent = `
+  /* ---------- fundo ---------- */
+  #lobby.rl { padding: 0; background: #04060c; overflow: hidden; display: block; }
+  #lobby.rl .rl-bg { position: absolute; inset: -4%; background: #04060c center / cover no-repeat; animation: rlKen 38s ease-in-out infinite alternate; filter: saturate(1.08); }
+  @keyframes rlKen { from { transform: scale(1.04) translate(0, 0); } to { transform: scale(1.12) translate(-1.5%, -1%); } }
+  #lobby.rl .rl-shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(3,5,12,.88) 0%, rgba(3,5,12,.55) 34%, rgba(3,5,12,.1) 62%, rgba(3,5,12,.45) 100%), linear-gradient(0deg, rgba(3,5,12,.85), transparent 30%); }
+  #lobby.rl .rl-spark { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: #6fd3ff; box-shadow: 0 0 8px #6fd3ff; opacity: 0; animation: rlSpark linear infinite; }
+  #lobby.rl .rl-spark.r { background: #ff7a4a; box-shadow: 0 0 8px #ff7a4a; }
+  @keyframes rlSpark { 0% { opacity: 0; transform: translateY(0); } 15% { opacity: .9; } 100% { opacity: 0; transform: translateY(-38vh); } }
+  #lobby.rl .rl-sweep { position: absolute; top: 0; bottom: 0; width: 30%; left: -40%; background: linear-gradient(100deg, transparent, rgba(120,200,255,.06), transparent); animation: rlSweep 9s ease-in-out infinite; pointer-events: none; }
+  @keyframes rlSweep { 0%, 70% { left: -40%; } 100% { left: 120%; } }
+  /* o cartão antigo vira só um contêiner */
+  #lobby.rl > .card { max-width: none; width: 100%; height: 100%; margin: 0; padding: 0; background: none; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; border-radius: 0; text-align: left; position: relative; }
+  #lobby.rl > .card > h1, #lobby.rl > .card > .ball-ico, #lobby.rl > .card > .howto, #lobby.rl .gear { display: none; }
+  #lobby.rl #menu { margin: 0; gap: 0; height: 100%; }
+  /* ---------- barra de cima ---------- */
+  .rl-top { position: absolute; top: 0; left: 0; right: 0; height: 74px; display: flex; align-items: center; gap: 16px; padding: 0 26px; z-index: 3; background: linear-gradient(180deg, rgba(3,5,12,.75), transparent); }
+  .rl-logo { font: italic 900 26px system-ui; letter-spacing: .02em; line-height: .9; text-shadow: 0 0 24px rgba(80,170,255,.35); }
+  .rl-logo span { display: block; font: 800 10px system-ui; letter-spacing: .62em; color: #6fd3ff; margin-top: 5px; }
+  .rl-crumb { font: 900 12px system-ui; letter-spacing: .3em; color: rgba(255,255,255,.45); margin-left: 6px; padding-left: 16px; border-left: 1px solid rgba(255,255,255,.18); }
+  .rl-sp { flex: 1; }
+  .rl-prof { display: flex; align-items: center; gap: 10px; padding: 6px 14px 6px 6px; background: rgba(10,16,30,.6); border: 1px solid rgba(111,211,255,.18); border-radius: 999px; backdrop-filter: blur(10px); cursor: pointer; transition: border-color .2s, background .2s; }
+  .rl-prof:hover { border-color: rgba(111,211,255,.5); background: rgba(14,24,44,.75); }
+  .rl-av { width: 40px; height: 40px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; font-weight: 900; background: linear-gradient(135deg, #1f6fff, #ff5a3c); flex: none; }
+  .rl-av img { width: 100%; height: 100%; object-fit: cover; }
+  .rl-pi b { display: block; font-size: 14px; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .rl-pi small { font-size: 11px; opacity: .65; }
+  .rl-lvl { display: flex; align-items: center; gap: 6px; margin-top: 3px; } .rl-lvl i { font-style: normal; font: 900 10px system-ui; color: #6fd3ff; }
+  .rl-xp { width: 90px; height: 4px; border-radius: 9px; background: rgba(255,255,255,.12); overflow: hidden; } .rl-xp div { height: 100%; background: linear-gradient(90deg, #3aa0ff, #6fd3ff); box-shadow: 0 0 8px #6fd3ff; }
+  .rl-ib { position: relative; width: 44px; height: 44px; border-radius: 12px; border: 1px solid rgba(255,255,255,.14); background: rgba(10,16,30,.55); color: #fff; font-size: 19px; cursor: pointer; backdrop-filter: blur(10px); transition: transform .15s, border-color .2s, background .2s; }
+  .rl-ib:hover { transform: translateY(-2px); border-color: rgba(111,211,255,.55); background: rgba(20,34,60,.75); }
+  .rl-ib.dim { opacity: .55; } .rl-ib .bd { position: absolute; top: -5px; right: -5px; min-width: 18px; height: 18px; border-radius: 9px; background: #ff3d5a; font: 900 11px system-ui; display: grid; place-items: center; padding: 0 4px; }
+  .rl-ib .bd.hidden { display: none; }
+  /* ---------- navegação ---------- */
+  .rl-nav { position: absolute; left: 0; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; padding-left: 26px; z-index: 3; width: min(340px, 40vw); }
+  .rl-nav button { position: relative; text-align: left; border: 0; cursor: pointer; color: #fff; background: none; padding: 0; font: italic 900 22px system-ui; letter-spacing: .05em; height: 52px; display: flex; align-items: center; animation: rlIn .5s cubic-bezier(.2,.9,.3,1) both; }
+  .rl-nav button::before { content: ''; position: absolute; inset: 0; transform: skewX(-14deg); background: linear-gradient(90deg, rgba(20,34,62,.75), rgba(20,34,62,.35)); border-left: 4px solid rgba(111,211,255,.35); transition: background .25s, border-color .25s, transform .25s, box-shadow .25s; }
+  .rl-nav button span { position: relative; padding-left: 26px; transition: transform .25s, letter-spacing .25s; display: flex; align-items: center; gap: 12px; }
+  .rl-nav button span em { font: 800 11px system-ui; font-style: normal; letter-spacing: .14em; opacity: .55; margin-left: 4px; }
+  .rl-nav button:hover::before, .rl-nav button.on::before { background: linear-gradient(90deg, rgba(31,111,255,.85), rgba(31,111,255,.25)); border-left-color: #6fd3ff; box-shadow: 0 0 30px rgba(31,111,255,.35); transform: skewX(-14deg) translateX(10px); }
+  .rl-nav button:hover span, .rl-nav button.on span { transform: translateX(16px); }
+  .rl-nav button.main { height: 70px; font-size: 32px; margin-bottom: 6px; }
+  .rl-nav button.main::before { background: linear-gradient(90deg, rgba(255,90,60,.92), rgba(255,61,127,.55)); border-left-color: #ffd34d; box-shadow: 0 10px 40px rgba(255,90,60,.35); }
+  .rl-nav button.main:hover::before, .rl-nav button.main.on::before { background: linear-gradient(90deg, #ff6a3c, rgba(255,61,127,.7)); box-shadow: 0 0 46px rgba(255,110,60,.6); }
+  ${[1, 2, 3, 4, 5, 6, 7].map(i => `.rl-nav button:nth-child(${i}) { animation-delay: ${0.05 * i}s; }`).join(' ')}
+  @keyframes rlIn { from { opacity: 0; transform: translateX(-40px); } }
+  /* ---------- páginas ---------- */
+  .rl-pages { position: absolute; top: 84px; bottom: 56px; right: 26px; left: min(390px, 43vw); z-index: 2; }
+  .rl-page { position: absolute; inset: 0; overflow-y: auto; opacity: 0; transform: translateX(40px); pointer-events: none; transition: opacity .3s, transform .35s cubic-bezier(.2,.9,.3,1); padding: 4px 6px 20px; scrollbar-width: thin; }
+  .rl-page.in { opacity: 1; transform: none; pointer-events: auto; }
+  .rl-page.out { opacity: 0; transform: translateX(-30px); }
+  .rl-panel { background: linear-gradient(160deg, rgba(14,22,40,.82), rgba(8,12,24,.78)); border: 1px solid rgba(111,211,255,.14); border-radius: 18px; padding: 16px 18px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 20px 60px rgba(0,0,0,.45); margin-bottom: 14px; position: relative; overflow: hidden; }
+  .rl-panel::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, rgba(111,211,255,.7), transparent); }
+  .rl-h { font: italic 900 20px system-ui; letter-spacing: .04em; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .rl-h small { font: 700 11px system-ui; letter-spacing: .14em; opacity: .55; font-style: normal; margin-left: auto; }
+  .rl-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin-bottom: 14px; }
+  .rl-mode { display: flex; flex-direction: column; gap: 10px; margin: 0; transition: transform .25s, border-color .25s, box-shadow .25s; }
+  .rl-mode:hover { transform: translateY(-4px); border-color: rgba(111,211,255,.4); box-shadow: 0 26px 60px rgba(0,0,0,.5), 0 0 30px rgba(31,111,255,.18); }
+  .rl-mode .ic { font-size: 30px; line-height: 1; } .rl-mode p { font-size: 13px; opacity: .7; line-height: 1.4; min-height: 36px; }
+  .rl-mode .btn, #lobby.rl .btn { margin: 0; border-radius: 10px; transition: transform .15s, box-shadow .2s, filter .2s; }
+  #lobby.rl .btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
+  #lobby.rl .btn:not(.ghost):not(.gold):not(.green) { background: linear-gradient(180deg, #2d7dff, #1a56d6); box-shadow: 0 8px 24px rgba(31,111,255,.35); }
+  #lobby.rl .btn.ghost { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12); }
+  #lobby.rl .row { margin: 0; } #lobby.rl input { border-radius: 10px; }
+  #lobby.rl .loadout { margin: 0; } #lobby.rl .pk-note { opacity: .55; }
+  #lobby.rl .seg button.on, #lobby.rl .bs.on { border-color: #6fd3ff; }
+  #lobby.rl .seg button.on { background: linear-gradient(180deg, rgba(31,111,255,.55), rgba(31,111,255,.2)); }
+  .rl-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 1100px) { .rl-grid2 { grid-template-columns: 1fr; } }
+  /* ---------- painéis sobre o menu (sala, conectando, fila) ---------- */
+  #lobby.rl #wait, #lobby.rl #joining, #lobby.rl #rankedPanel { position: absolute; z-index: 5; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, 92vw); margin: 0; background: linear-gradient(160deg, rgba(14,22,40,.95), rgba(8,12,24,.95)); border: 1px solid rgba(111,211,255,.3); border-radius: 20px; padding: 22px; text-align: center; box-shadow: 0 30px 90px rgba(0,0,0,.7); animation: rlPop .35s cubic-bezier(.2,1.4,.4,1); }
+  @keyframes rlPop { from { opacity: 0; transform: translate(-50%, -46%) scale(.94); } }
+  #lobby.rl #lobbyMsg { position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 6; margin: 0; background: rgba(60,10,24,.85); border: 1px solid rgba(255,90,120,.4); padding: 8px 16px; border-radius: 999px; }
+  #lobby.rl #lobbyMsg:empty { display: none; }
+  /* ---------- rodapé ---------- */
+  .rl-foot { position: absolute; left: 26px; right: 26px; bottom: 14px; display: flex; align-items: center; gap: 18px; z-index: 3; font: 700 11px system-ui; letter-spacing: .12em; color: rgba(255,255,255,.45); }
+  .rl-foot kbd { font: 900 10px system-ui; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,.12); color: #fff; margin-right: 6px; }
+  .rl-foot .rl-sp { flex: 1; }
+  /* ---------- celular ---------- */
+  @media (max-width: 760px) {
+    .rl-top { height: 62px; padding: 0 12px; } .rl-logo { font-size: 19px; } .rl-crumb, .rl-pi small, .rl-lvl { display: none; } .rl-pi b { max-width: 90px; font-size: 12px; }
+    .rl-nav { position: absolute; top: 66px; transform: none; flex-direction: row; overflow-x: auto; width: 100%; padding: 0 10px 6px; gap: 6px; }
+    .rl-nav button, .rl-nav button.main { height: 42px; font-size: 14px; flex: none; margin: 0; animation: none; }
+    .rl-nav button span { padding: 0 18px 0 16px; } .rl-nav button span em { display: none; }
+    .rl-nav button:hover span, .rl-nav button.on span { transform: none; } .rl-nav button:hover::before, .rl-nav button.on::before { transform: skewX(-14deg); }
+    .rl-pages { top: 118px; left: 10px; right: 10px; bottom: 44px; } .rl-foot { display: none; }
+    #lobby.rl .rl-shade { background: linear-gradient(0deg, rgba(3,5,12,.9), rgba(3,5,12,.55)); }
+  }`;
+  document.head.appendChild(st);
+
+  const lobby = $('lobby'), card = lobby.querySelector('.card'), menu = $('menu');
+  lobby.classList.add('rl');
+  // fundo: arte + brilho que passa + faíscas subindo
+  const bg = h('div', { class: 'rl-bg' });
+  const small = window.innerWidth < 900;
+  const img = new Image();
+  img.onload = () => { bg.style.backgroundImage = `url("${img.src}")`; };
+  img.onerror = () => { if (!img.dataset.f) { img.dataset.f = 1; img.src = ASSET_BASES[1] + (small ? 'menu-bg-small.jpg' : 'menu-bg.jpg'); } };
+  img.src = ASSET_BASES[0] + (small ? 'menu-bg-small.jpg' : 'menu-bg.jpg');
+  const fx = [bg, h('div', { class: 'rl-sweep' }), h('div', { class: 'rl-shade' })];
+  for (let i = 0; i < 22; i++) {
+    const s = h('div', { class: 'rl-spark' + (i % 3 === 0 ? ' r' : '') });
+    s.style.left = (i % 3 === 0 ? 2 + Math.random() * 25 : 58 + Math.random() * 38) + '%';
+    s.style.top = (45 + Math.random() * 30) + '%';
+    s.style.animationDuration = (5 + Math.random() * 6) + 's'; s.style.animationDelay = (-Math.random() * 10) + 's';
+    fx.push(s);
+  }
+  lobby.prepend(...fx);
+
+  // barra de cima: logo, perfil e atalhos
+  const prof = h('div', { class: 'rl-prof', title: acct.user ? 'Perfil e sigla' : 'Entrar' },
+    h('div', { class: 'rl-av', id: 'rlAv' }), h('div', { class: 'rl-pi' }, h('b', { id: 'rlName' }), h('small', { id: 'rlSub' }),
+      h('div', { class: 'rl-lvl' }, h('i', {}, 'NÍV ', h('span', { id: 'rlLvl' })), h('div', { class: 'rl-xp' }, h('div', { id: 'rlXpBar' })))));
+  prof.onclick = () => { uiTick('click'); if (acct.user) openSettings('perfil'); else showPage('home'); };
+  const ib = (txt, title, fn, id) => { const b = h('button', { class: 'rl-ib', title, 'aria-label': title, id }, txt); b.onclick = () => { uiTick('click'); fn(); }; b.onmouseenter = () => uiTick('hover'); return b; };
+  const frB = ib('👥', 'Amigos', () => openFriends(), 'rlFr'); frB.append(h('span', { class: 'bd hidden', id: 'rlFrBadge' }));
+  const top = h('div', { class: 'rl-top' }, h('div', { class: 'rl-logo' }, 'PING PONG', h('span', { text: 'ONLINE' })), h('div', { class: 'rl-crumb', id: 'rlCrumb', text: 'INÍCIO' }), h('div', { class: 'rl-sp' }),
+    prof, frB, ib('🏆', 'Ranking', () => openRanking()), ib('⚙️', 'Configurações', () => openSettings()));
+  // navegação
+  const nb = (p, label, sub, fn, cls = '') => {
+    const b = h('button', { class: cls, 'data-p': p || '' }, h('span', {}, label, sub ? h('em', { text: sub }) : null));
+    b.onmouseenter = () => uiTick('hover');
+    b.onclick = () => { uiTick('click'); ensureAudio(); fn ? fn() : showPage(p); };
+    return b;
+  };
+  const nav = h('div', { class: 'rl-nav' },
+    nb('play', 'JOGAR', 'online · treino · ranqueada', null, 'main'),
+    nb('garage', 'GARAGEM', 'raquete · bolinha', null),
+    nb('', 'AMIGOS', '', () => openFriends()),
+    nb('', 'RANKING', '', () => openRanking()),
+    nb('', 'TUTORIAL', '1 min', () => startTutorial()),
+    nb('', 'CONFIGURAÇÕES', '', () => openSettings()),
+    nb('home', 'INÍCIO', '', null));
+  // páginas
+  const lo = menu.querySelector('.loadout');
+  const kids = lo ? [...lo.children] : [];
+  const grab = (fromIdx, toIdx) => kids.slice(fromIdx, toIdx);
+  const idx = sel => kids.findIndex(e => e.matches(sel));
+  // separa o antigo "loadout" em raquete/bolinha (garagem) e cenário/formato/CPU (jogar)
+  const iRk = 0, iAr = kids.findIndex(e => e.classList.contains('lo-t') && /CEN/.test(e.textContent)), iBs = kids.findIndex(e => e.classList.contains('lo-t') && /BOLINHA/.test(e.textContent)), iFmt = kids.findIndex(e => e.classList.contains('lo-t') && /PARTIDA/.test(e.textContent));
+  const rkNodes = grab(iRk, iAr), arNodes = grab(iAr, iBs), bsNodes = grab(iBs, iFmt), fmtNodes = grab(iFmt, kids.length);
+  const cpuT = fmtNodes.find(e => e.classList.contains('lo-t') && /CPU/.test(e.textContent)), diff = $('diffSeg'), note = fmtNodes.find(e => e.classList.contains('pk-note'));
+  const fmtOnly = fmtNodes.filter(e => e !== cpuT && e !== diff && e !== note);
+  const mkLo = nodes => { const d = h('div', { class: 'loadout' }); d.append(...nodes); return d; };
+  const pnl = (...c) => h('div', { class: 'rl-panel' }, ...c);
+  const tagB = h('button', { class: 'btn ghost', text: '🏓 Sigla na raquete' }); tagB.onclick = () => openSettings('perfil');
+
+  const pHome = h('div', { class: 'rl-page in', id: 'pg-home' });
+  const acctCard = $('acctCard'), progCard = $('progCard');
+  const goPlay = h('button', { class: 'btn', text: '▶  JOGAR AGORA' }); goPlay.onclick = () => { uiTick('click'); showPage('play'); };
+  pHome.append(h('div', { class: 'rl-grid2' },
+    pnl(h('div', { class: 'rl-h' }, '👤 Sua conta'), acctCard),
+    pnl(h('div', { class: 'rl-h' }, '🎯 Progresso', h('small', { text: 'MISSÕES DE HOJE' })), progCard, goPlay)));
+
+  const pPlay = h('div', { class: 'rl-page', id: 'pg-play' });
+  const mode = (ic, title, desc, ...c) => h('div', { class: 'rl-panel rl-mode' }, h('div', { class: 'ic', text: ic }), h('div', { class: 'rl-h', text: title }), h('p', { text: desc }), ...c);
+  const codeRow = menu.querySelector('.row');
+  const divider = menu.querySelector('.divider'); if (divider) divider.remove();
+  const tut = $('btnTut');
+  pPlay.append(
+    h('div', { class: 'rl-modes' },
+      mode('🤝', 'Com amigo', 'Crie uma sala e mande o link, ou entre com o código. Dá para só assistir também.', $('btnCreate'), codeRow, $('btnWatch')),
+      mode('⚔️', 'Ranqueada', 'Fila automática com gente do seu nível. Vale elo e divisão.', $('btnRanked'), $('btnRanking')),
+      mode('🤖', 'Treino', 'Contra a CPU, no nível que você escolher.', cpuT ? mkLo([cpuT, diff]) : null, $('btnSolo'), tut)),
+    pnl(h('div', { class: 'rl-h' }, '🏟️ Partida', h('small', { text: 'CENÁRIO E FORMATO' })), h('div', { class: 'rl-grid2' }, mkLo(arNodes), mkLo([...fmtOnly, note].filter(Boolean)))));
+
+  const pGarage = h('div', { class: 'rl-page', id: 'pg-garage' });
+  pGarage.append(h('div', { class: 'rl-grid2' },
+    pnl(h('div', { class: 'rl-h' }, '🏓 Raquete'), mkLo(rkNodes)),
+    pnl(h('div', { class: 'rl-h' }, '⚪ Bolinha e sigla'), mkLo(bsNodes), h('div', { class: 'stack' }, tagB))));
+
+  if (lo) lo.remove();
+  const rest = [...menu.children]; if (rest.length) console.info('menu: sobrou', rest.map(e => e.id || e.className));
+  const keep = h('div', { class: 'hidden', id: 'rlRest' }); keep.append(...rest);
+  menu.append(top, nav, h('div', { class: 'rl-pages' }, pHome, pPlay, pGarage),
+    keep, h('div', { class: 'rl-foot' }, h('span', {}, h('kbd', { text: 'ESC' }), 'VOLTAR'), h('span', { class: 'rl-sp' }), h('span', { text: 'STEAM É MARCA DA VALVE · JOGO NÃO AFILIADO' })));
+  menu.querySelector('.rl-nav button[data-p="home"]').classList.add('on');
+  // os cliques continuam funcionando nos seletores que mudaram de lugar
+  for (const d of [pPlay, pGarage]) d.addEventListener('click', e => {
+    const b = e.target.closest('.pk-arrow'); if (b) { uiTick('click'); pickMove(b.dataset.k, +b.dataset.d); }
+    const f = e.target.closest('#fmtSeg button'); if (f) { pickState.fmt = +f.dataset.f; store.set('pp_fmt', String(pickState.fmt)); renderPick(); }
+    const bs = e.target.closest('#bsList .bs');
+    if (bs) { const sk = ballSkinById(bs.dataset.b); if (skinLocked(sk)) toast(`🔒 A bolinha ${sk.name} libera no nível ${SKIN_LV[sk.id]}`); else { applyBallSkin(sk); renderPick(); } }
+    if (e.target.closest('button')) uiTick('click');
+  });
+  card.addEventListener('mouseover', e => { if (e.target.closest('.rl-panel .btn, .pk-arrow, .seg button')) uiTick('hover'); });
+  window.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || $('lobby').classList.contains('hidden')) return;
+    if (!$('cfgScreen').classList.contains('hidden') || !$('frScreen').classList.contains('hidden')) return;
+    if (UI.page !== 'home') showPage('home');
+  });
+  renderTopProfile();
+  setInterval(() => { if (!$('lobby').classList.contains('hidden')) renderTopProfile(); }, 3000);
+}
+
+
+/* =====================================================================
    RENDER
    ===================================================================== */
 const _q = new THREE.Quaternion(), _ax = new THREE.Vector3();
@@ -4909,6 +5112,7 @@ function renderLive(dt) {
     placePaddle(oppPaddleMesh, S.mode === 'solo' ? bot : opp, -S.mySide, dt);
   }
 }
+const lobbyEl = document.getElementById('lobby');
 function renderWorld(dt, t) {
   // animações do ambiente
   ledFlash = Math.max(0, ledFlash - dt * 1.2);
@@ -4924,7 +5128,7 @@ function renderWorld(dt, t) {
   updateRings(dt);
   updateNet(dt * TIME_SCALE);
 
-  if (!window.__ppNoRender) composer.render(dt);    // testes automáticos podem pular o desenho
+  if (!window.__ppNoRender && !(S.phase === 'lobby' && lobbyEl && !lobbyEl.classList.contains('hidden'))) composer.render(dt);    // no menu o 3D fica escondido: não desenha (testes também podem pular)
 }
 
 function onResize() {
@@ -5015,6 +5219,7 @@ if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam
 initFeelUI();
 initSpecUI();
 initFriendsUI();
+initMenuShell();
 const verParam = new URLSearchParams(location.search).get('ver');
 if (verParam && !roomParam) { $('inCode').value = verParam.toUpperCase(); joinSpectate(verParam); }
-window.__pp = { FR, loadFriends, openFriends, socialPoll, showInvite, SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+window.__pp = { UI, showPage, menuMusic, updateMenuMusic, FR, loadFriends, openFriends, socialPoll, showInvite, SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
