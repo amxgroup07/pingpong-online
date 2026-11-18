@@ -60,6 +60,13 @@ Todos os botões e cartões reagem ao hover e ao clique (subida leve, brilho, "o
 - Fundo: a arte do jogo (`assets/menu-bg.jpg`; no celular, a versão menor) com zoom lento. Enquanto o menu está na tela, o 3D não é desenhado.
 - **Música do menu:** `assets/menu-music.mp3`, em loop e baixa, só depois do login; mais baixa na tela de resultado e some na partida (a menos que "música durante a partida" esteja ligada). Segue o volume de **Música** e o 🔇. Os arquivos vêm do jsDelivr fixados no commit (`ASSET_SHA` no `game.js`).
 
+## Vitória, selo de fundador e câmera lenta
+
+- **Vitória:** quem ganha vê a tela "VITÓRIA" (letras douradas entrando uma a uma, raios girando, brilho e confete), com o avatar, o nome e o selo de fundador embaixo e o placar. A música `assets/victory.mp3` toca por cima (segue o volume de **Música**; a do menu espera ela acabar) e o **último ponto da partida passa em replay no fundo**, repetindo. "Continuar" (ou espaço) pula; depois de ~11 s seguem os melhores momentos e o resultado. Quem perde vê o fim de jogo de antes.
+- **Selo "Usuário fundador":** toda conta criada até 31/12/2026 (horário de Brasília) ganha o selo (`private.is_founder`, campo `founder` em `my_profile`, amigos e ranking). Aparece na barra do clube, no perfil, nos cartões de amigos, no ranking, na tela VS (o `hello` leva `fd`) e na vitória. Na primeira vez aparece um aviso "Selo desbloqueado".
+- **Câmera lenta dos replays:** agora com som próprio (grave contínuo, "ar" abafado, batida de coração, varrida descendo ao entrar e subindo ao sair, torcida abafada e estrondo grave nas batidas). A câmera da parte lenta virou uma câmera de TV na lateral da mesa que corre junto com a bola, sem girar com a direção da bola e sem seguir a bola depois que ela some.
+- **Raquete e skin:** velocidade, efeito e controle em barras (Coleção e escolha da raquete, com um quadro maior da raquete escolhida). As skins ficam escurecidas, com o aviso "Escolha a raquete para liberar as skins", até o jogador escolher a raquete; o botão de confirmar também só libera depois disso.
+
 ## Partida em etapas (estilo FIFA) e convite pelo jogo
 
 1. **Tipo de partida** (aba Jogar): Treino, Amigo, Ranqueada ou Tutorial.

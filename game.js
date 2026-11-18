@@ -2055,7 +2055,7 @@ function joinRoom(code, tries = 0) {
 }
 function setupConn(c) {
   conn = c;
-  c.on('open', () => { send({ t: 'hello', rk: myRacket.id, tag: myTag(), sk: mySkinFor(myRacket), av: validAv(myAvatar()), name: acct.profile ? acct.profile.name : null }); if (isHost) { const f = S.ranked ? 1 : pickState.fmt; send({ t: 'start', arena: A.id, fmt: f }); startGame('online', 1, f); } });
+  c.on('open', () => { send({ t: 'hello', rk: myRacket.id, tag: myTag(), sk: mySkinFor(myRacket), av: validAv(myAvatar()), fd: isFounder(), name: acct.profile ? acct.profile.name : null }); if (isHost) { const f = S.ranked ? 1 : pickState.fmt; send({ t: 'start', arena: A.id, fmt: f }); startGame('online', 1, f); } });
   c.on('data', onMsg);
   c.on('close', () => onDisconnect());
   c.on('error', () => onDisconnect());
@@ -2071,7 +2071,7 @@ function onMsg(m) {
   if (!m || typeof m !== 'object') return;
   switch (m.t) {
     case 'start': if (m.arena && arenaById(m.arena).id !== A.id) buildArena(m.arena); startGame('online', -1, S.ranked ? 1 : ([1, 3, 5].includes(m.fmt) ? m.fmt : 1)); break;
-    case 'hello': if (RACKETS.some(r => r.id === m.rk)) setPaddle('op', racketById(m.rk), cleanTag(m.tag), typeof m.sk === 'string' ? m.sk : ''); if (typeof m.name === 'string' && !S.ranked) S.oppName = m.name.slice(0, 20); oppAvatar = validAv(m.av); refreshNames(); updateHud(); specInitAll(); if (VS.on) renderVs(); break;
+    case 'hello': if (RACKETS.some(r => r.id === m.rk)) setPaddle('op', racketById(m.rk), cleanTag(m.tag), typeof m.sk === 'string' ? m.sk : ''); if (typeof m.name === 'string' && !S.ranked) S.oppName = m.name.slice(0, 20); oppAvatar = validAv(m.av); oppFounder = m.fd === true; refreshNames(); updateHud(); specInitAll(); if (VS.on) renderVs(); break;
     case 'cheer': if (CHEERS.includes(m.e)) showCheer(m.e); break;
     case 'specs': showSpecCount(+m.n || 0); break;
     case 'pad':
@@ -2594,7 +2594,7 @@ function ensureMenuMusic() {
 }
 function updateMenuMusic() {
   ensureMenuMusic(); const m = menuMusic; if (!m.el) return;
-  const gated = !acct.user && !(acct.failed && GATE.offline) && S.mode !== 'spec';   // na tela de login fica em silêncio
+  const gated = (!acct.user && !(acct.failed && GATE.offline) && S.mode !== 'spec') || VIC.playing;   // na tela de login fica em silêncio
   const want = muted || cfg.vMusic <= 0 || gated ? 0 : S.phase === 'lobby' ? 0.8 : S.phase === 'over' ? 0.5 : cfg.musicInGame ? 0.3 : 0;
   m.want = want;
   m.g.gain.setTargetAtTime(want, actx.currentTime, want > 0 ? 0.8 : 0.5);   // entra e sai devagar
@@ -2945,7 +2945,7 @@ function startGame(mode, side, format = 1) {
 function goMenu() {
   const wasOnline = S.mode === 'online';
   const wasSpec = S.mode === 'spec';
-  S.mode = null; S.phase = 'lobby'; S.ballVisible = false; S.ranked = null; S.oppName = null; oppAvatar = ''; if (VS.on) hideVs();
+  S.mode = null; S.phase = 'lobby'; S.ballVisible = false; S.ranked = null; S.oppName = null; oppAvatar = ''; oppFounder = false; if (VS.on) hideVs(); stopVictoryMusic();
   if (wasSpec) { document.body.classList.remove('spectating'); setPaddle('me', myRacket); setPaddle('op', RACKETS[0], '', ''); }
   document.body.classList.remove('online'); renderSpecUI(); showSpecCount(0);
   stopEnd(); endReplay(false); RP.pending = false; RP.rec = null; S.paused = false; music.duck();
@@ -3162,7 +3162,7 @@ async function refreshProfile() {
     else if (prog.xp > (acct.profile.xp | 0)) rpc('sync_xp', { p_xp: prog.xp }).catch(() => { });
     renderProgress();
   }
-  renderAccount(); refreshNames(); afterProfile(); if (window.__futReady) renderTopProfile();
+  renderAccount(); refreshNames(); afterProfile(); if (window.__futReady) { renderTopProfile(); setTimeout(founderWelcome, 800); }
   if (typeof FR !== 'undefined') FR.lastPoll = -1e9;         // presença e convites logo depois do login
 }
 async function initAccount() {
@@ -3304,6 +3304,7 @@ async function openRanking() {
       const pos = document.createElement('span'); pos.className = 'rk-pos'; pos.textContent = i < 3 ? ['🥇', '🥈', '🥉'][i] : `${i + 1}º`;
       const nm = document.createElement('span'); nm.className = 'rk-name'; nm.textContent = r.name;
       if (r.tag) { const tg = document.createElement('small'); tg.className = 'rk-tag'; tg.textContent = ' ' + r.tag; nm.appendChild(tg); }
+      if (r.founder) { nm.append(' '); nm.append(founderBadge('xs')); }
       const dvs = document.createElement('span'); dvs.className = 'rk-div'; dvs.textContent = `${dv.icon} ${dv.name}`; dvs.style.color = dv.color;
       const el = document.createElement('span'); el.className = 'rk-elo'; el.textContent = r.rating;
       const wl = document.createElement('span'); wl.className = 'rk-wl'; wl.textContent = `${r.wins}V ${r.losses}D`;
@@ -3862,6 +3863,7 @@ function recPoint(winner, reason) {
 }
 function recFinish() {
   const c = RP.rec; RP.rec = null;
+  if (c && c.done && c.frames.length >= 20) RP.last = c;
   if (!c || !c.done || c.frames.length < 20 || c.score < 2) return;
   RP.clips.push(c); RP.clips.sort((a, b) => b.score - a.score);
   if (RP.clips.length > 6) RP.clips.length = 6;
@@ -3879,6 +3881,11 @@ function frameAt(c, t) {
   while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (F[mid][0] <= t) lo = mid; else hi = mid; }
   const a = F[lo], b = F[hi], k = (t - a[0]) / Math.max(1e-6, b[0] - a[0]);
   return a.map((v, i) => i === 4 || i === 15 ? (k < 0.5 ? v : b[i]) : v + (b[i] - v) * k);
+}
+function visFrame(c, t) {                              // último quadro com a bola visível (ela some quando o ponto acaba)
+  let f = frameAt(c, t); if (f[4]) return f;
+  for (let k = 1; k <= 60; k++) { const g = frameAt(c, t - k * 0.03); if (g[4]) return g; }
+  return f;
 }
 function buildShots(c, short) {
   const t0 = c.frames[0][0], tLast = c.frames[c.frames.length - 1][0], tH = c.tHit;
@@ -3904,7 +3911,7 @@ function startReplay(clip, o = {}) {
 }
 function endReplay(run = true) {
   const p = RP.play; if (!p) return;
-  RP.play = null; trailPts.length = 0;
+  RP.play = null; trailPts.length = 0; slowAudio(false);
   document.body.classList.remove('replaying'); $('rpUI').classList.add('hidden'); $('chatFeed').classList.remove('hidden');
   if (run && p.onEnd) p.onEnd();
   updateLockUI();
@@ -3922,7 +3929,7 @@ function skipReplay() {
 function replayEvents(c, t0, t1) {
   for (const e of c.events) {
     if (e.t <= t0 || e.t > t1) continue;
-    if (e.k === 'hit') { sfx('hit', e.label, e.p, e.s * 0.8, (e.side === S.mySide ? myRacket : oppRacket).sound); sparks.emit(22, e.p[0], e.p[1], e.p[2], TRAIL_COLORS[e.label] || 0x22ff88, 1.8, { life: 0.4, intensity: 2.5, grav: 2, drag: 3 }); }
+    if (e.k === 'hit') { if (SLOW.on) boom(0.32); sfx('hit', e.label, e.p, e.s * 0.8, (e.side === S.mySide ? myRacket : oppRacket).sound); sparks.emit(22, e.p[0], e.p[1], e.p[2], TRAIL_COLORS[e.label] || 0x22ff88, 1.8, { life: 0.4, intensity: 2.5, grav: 2, drag: 3 }); }
     else if (e.k === 'table') { sfx('table', null, e.p, e.s); spawnRing(e.p[0], TH + 0.003, e.p[2], trailColor); }
     else if (e.k === 'net') sfx('net', null, e.p, e.s);
   }
@@ -3944,6 +3951,7 @@ function replayStep(dt) {
     }
     replayEvents(c, prev, p.t);
   }
+  slowAudio(p.mode !== 'bg' && (p.freeze > 0 || sh.rate < 1));
   $('rpSpeed').textContent = p.freeze > 0 ? '⏸ CONGELADO' : sh.rate < 1 ? `⏱ CÂMERA LENTA ${sh.rate}×` : '';
   if (sh.cam === 'celebrate' && !sh.started) { sh.started = true; crowdReact('point', 0.9); pyroBurst(0.9); confetti.emit(70, 0, 3.2, c.winner * (HL + 0.4), 0xffffff, 1.2, { rainbow: true, life: 2.5, grav: 0.9, drag: 1.4, spread: 3 }); }
   if (p.t >= sh.b && p.freeze <= 0) {
@@ -3971,7 +3979,7 @@ function replayPose() {
 const _rp = new THREE.Vector3(), _rl = new THREE.Vector3(), _rd = new THREE.Vector3();
 function replayCamera(dt) {
   const p = RP.play; if (!p) return;
-  const c = p.clip, sh = p.shots[p.i], f = frameAt(c, p.t), ball = _rl.set(f[1], Math.max(f[2], TH - 0.2), f[3]);
+  const c = p.clip, sh = p.shots[p.i], f = visFrame(c, p.t), ball = _rl.set(f[1], Math.max(f[2], TH - 0.2), f[3]);
   let fov = 40;
   if (sh.cam === 'broadcast') {
     _rp.set(3.4, TH + 1.35, clamp(f[3] * 0.4, -1.2, 1.2)); ball.set(f[1] * 0.4, TH + 0.05, f[3] * 0.6); fov = 36;
@@ -3981,18 +3989,19 @@ function replayCamera(dt) {
       sh.base = new THREE.Vector3(h[o] + sx * 0.85, TH + 0.14, hz - hs * 0.8);
     }
     _rp.copy(sh.base); fov = p.freeze > 0 ? lerp(RP.cam.fov, 19, Math.min(1, dt * 5)) : 30;
-  } else if (sh.cam === 'chase') {
-    const g = frameAt(c, p.t - 0.05); _rd.set(f[1] - g[1], 0, f[3] - g[3]);
-    if (_rd.lengthSq() < 1e-6) _rd.set(0, 0, -Math.sign(f[3]) || 1);
-    _rd.normalize();
-    _rp.set(f[1] - _rd.x * 1.1, Math.max(f[2], TH) + 0.42, f[3] - _rd.z * 1.1); ball.addScaledVector(_rd, 0.7); ball.y = lerp(ball.y, TH, 0.5); fov = 50;
+  } else if (sh.cam === 'chase') {                       // câmera de TV na lateral, correndo junto com a bola
+    if (!sh.side) { const h0 = frameAt(c, c.tHit); sh.side = Math.sign(h0[1]) || 1; }
+    const bz = clamp(f[3], -HL - 0.8, HL + 0.8), bx = clamp(f[1], -HW - 0.6, HW + 0.6);
+    _rp.set(sh.side * (HW + 1.35) + bx * 0.25, TH + 0.5 + Math.max(0, f[2] - TH) * 0.35, bz * 0.85);
+    ball.set(bx, clamp(f[2], TH - 0.05, TH + 1.2), bz); fov = 36;
   } else {                                               // comemoração: câmera gira em volta de quem fez o ponto
     const o = c.winner === S.mySide ? 5 : 10, cz = f[o + 2], a = p.el * 0.7;
     ball.set(f[o], f[o + 1] + 0.05, cz);
     _rp.set(f[o] + Math.sin(a) * 1.5, TH + 0.55, cz - Math.sign(cz) * Math.cos(a) * 1.5); fov = 42;
   }
-  const k = RP.cam.snap ? 1 : Math.min(1, dt * (sh.cam === 'hit' ? 10 : 5));
-  RP.cam.pos.lerp(_rp, k); RP.cam.look.lerp(ball, RP.cam.snap ? 1 : Math.min(1, dt * 9)); RP.cam.fov = RP.cam.snap ? fov : lerp(RP.cam.fov, fov, Math.min(1, dt * 4));
+  const k = RP.cam.snap ? 1 : Math.min(1, dt * (sh.cam === 'hit' ? 10 : sh.cam === 'chase' ? 3.2 : 5));
+  RP.cam.pos.lerp(_rp, k); RP.cam.look.lerp(ball, RP.cam.snap ? 1 : Math.min(1, dt * (sh.cam === 'chase' ? 6 : 9)));
+  if (RP.cam.pos.y < TH + 0.18) RP.cam.pos.y = TH + 0.18; RP.cam.fov = RP.cam.snap ? fov : lerp(RP.cam.fov, fov, Math.min(1, dt * 4));
   RP.cam.snap = false;
   camera.position.copy(RP.cam.pos); camera.lookAt(RP.cam.look);
   if (cam.shake > 0 && cfg.shake) { const s = cam.shake * cam.shake * 0.02; camera.position.x += (Math.random() - 0.5) * s; camera.position.y += (Math.random() - 0.5) * s; cam.shake = Math.max(0, cam.shake - dt * 3); }
@@ -4046,6 +4055,10 @@ const END = { active: false, t: 0, won: false, stage: '', list: [], idx: 0, skip
 function endSequence(won) {
   recFinish();
   Object.assign(END, { active: true, t: 0, won, stage: 'party', list: pickHighlights(), idx: 0, skipAll: false });
+  if (won && !S.tutorial) {
+    $('rpUI').classList.remove('hidden'); $('rpTitle').textContent = '🏆 VITÓRIA'; $('rpCap').textContent = ''; $('rpSpeed').textContent = ''; $('rpSkip').textContent = 'Continuar ⏭';
+    document.body.classList.add('replaying'); startVictory(); return;
+  }
   showBanner(won ? 'VITÓRIA!' : 'FIM DE JOGO', won ? 'mandou muito! 🏆' : `${oppLabel()} levou essa`, won ? 'win' : 'lose', 3300);
   fxWin(won); celebrate(1.3); setTimeout(() => { if (END.active) celebrate(0.8); }, 1700);
   $('rpUI').classList.remove('hidden'); $('rpTitle').textContent = won ? '🏆 VITÓRIA' : 'FIM DE JOGO'; $('rpCap').textContent = '';
@@ -4060,11 +4073,11 @@ function pickHighlights() {
 function endStep(dt) {
   if (!END.active || RP.play) return;
   END.t += dt;
-  if (END.stage === 'party') {                           // câmera dá uma volta lenta pela arena
+  if (END.stage === 'party' || END.stage === 'victory') {   // câmera dá uma volta lenta pela arena
     const sd = S.mySide || 1, a = Math.sin(END.t * 0.35) * 0.9, k = Math.min(1, END.t / 3.6);
     camera.position.set(Math.sin(a) * 2.6, TH + 1.25 - k * 0.35, sd * (HL + 2.9 - k * 0.6));   // câmera vem chegando e balança devagar
     camera.lookAt(0, A.fireworks ? TH + 2.0 : TH + 0.9, -sd * 2.5); camera.fov = 52; camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
-    if (END.t > 3.6 || END.skipAll) nextHighlight();
+    if (END.stage === 'party' && (END.t > 3.6 || END.skipAll)) nextHighlight();
   }
 }
 function nextHighlight() {
@@ -4080,7 +4093,7 @@ function finishEnd() {
   if (S.phase === 'over') { $('over').classList.remove('hidden'); releaseMouse(); }
   updateLockUI();
 }
-function stopEnd() { END.active = false; END.stage = ''; if (RP.play) endReplay(false); document.body.classList.remove('replaying'); $('rpUI').classList.add('hidden'); }
+function stopEnd() { if (typeof hideWin === 'function') { hideWin(); clearTimeout(VIC.timer); } END.active = false; END.stage = ''; if (RP.play) endReplay(false); document.body.classList.remove('replaying'); $('rpUI').classList.add('hidden'); }
 
 /* ---------- telas do replay, faixa de anúncio e placar de games ---------- */
 let bannerTimer = 0;
@@ -4128,7 +4141,7 @@ function initReplayUI() {
   if (nmL) { const g = document.createElement('span'); g.className = 'gms'; g.id = 'gmsL'; nmL.after(g); }
   if (nmR) { const g = document.createElement('span'); g.className = 'gms'; g.id = 'gmsR'; nmR.before(g); }
   const ft = document.createElement('div'); ft.id = 'fmtTag'; $('hud').appendChild(ft);
-  $('rpSkip').onclick = () => { if (RP.play) skipReplay(); else if (END.active) { END.skipAll = true; finishEnd(); } };
+  $('rpSkip').onclick = () => { if (END.stage === 'victory') { finishVictory(); return; } if (RP.play) skipReplay(); else if (END.active) { END.skipAll = true; finishEnd(); } };
   window.addEventListener('keydown', e => {
     if (e.code !== 'Space' && e.key !== 'Escape') return;
     if (!RP.play && !END.active) return;
@@ -4742,7 +4755,7 @@ async function frAction(fn, args, okMsg) {
 async function inviteFriend(f) {
   if (S.mode && S.mode !== 'online') { toast('Saia da partida atual para convidar'); return; }
   if (S.mode === 'online') { toast('Você já está numa partida online'); return; }
-  if (window.__futReady) { closeFriends(); Object.assign(MATCH, { type: 'friend', friend: f }); UI.stack = ['play', 'friend']; showPanel('menu'); showPage('arena'); return; }
+  if (window.__futReady) { closeFriends(); Object.assign(MATCH, { rkPicked: false, type: 'friend', friend: f }); UI.stack = ['play', 'friend']; showPanel('menu'); showPage('arena'); return; }
   if (!(isHost && peer && curRoom)) { createRoom(); }               // abre uma sala e espera o amigo nela
   const room = curRoom;
   const ok = await frAction('invite_friend', { p_to: f.id, p_room: room }, `Convite enviado para ${f.name}. Esperando ele entrar…`);
@@ -5040,9 +5053,9 @@ function futPage(id) {
       { title: 'Amigos', art: artSVG('amigos', '#3d82ff'), foot: [['Pedidos', FR.incoming | 0], ['Código', (p && p.friend_code) || '—'], ['Convites', (FR.invites || []).length]], go: () => openFriends(), badge: FR.incoming ? `${FR.incoming} NOVO${FR.incoming > 1 ? 'S' : ''}` : '' },
     ] };
     case 'play': return { title: 'Tipo de partida', sub: 'Escolha como quer jogar. Depois vêm o cenário, o modo de jogo e a raquete.', chips, tiles: [
-      { title: 'Treino', art: artSVG('treino', '#38e1ff'), foot: [['Contra', 'CPU'], ['Níveis', 4], ['XP', `até ×${BOT_LV.pro.xp}`]], go: () => { Object.assign(MATCH, { type: 'solo', friend: null }); futGo('arena'); } },
+      { title: 'Treino', art: artSVG('treino', '#38e1ff'), foot: [['Contra', 'CPU'], ['Níveis', 4], ['XP', `até ×${BOT_LV.pro.xp}`]], go: () => { Object.assign(MATCH, { rkPicked: false, type: 'solo', friend: null }); futGo('arena'); } },
       { title: 'Amigo', art: artSVG('amigo', '#3d82ff'), foot: [['Convite', 'No jogo'], ['Amigos', FR.data ? FR.data.friends.length : '—'], ['Online', FR.data ? FR.data.friends.filter(f => f.online).length : '—']], go: () => { FR.data = null; futGo('friend'); } },
-      { title: 'Ranqueada', art: artSVG('rank', '#ffc23a'), foot: [['Elo', elo], ['Divisão', dv.name.replace('Colocação', 'Coloc.')], ['V / D', p ? `${p.wins}/${p.losses}` : '0/0']], go: () => { Object.assign(MATCH, { type: 'ranked', friend: null }); futGo('gear'); } },
+      { title: 'Ranqueada', art: artSVG('rank', '#ffc23a'), foot: [['Elo', elo], ['Divisão', dv.name.replace('Colocação', 'Coloc.')], ['V / D', p ? `${p.wins}/${p.losses}` : '0/0']], go: () => { Object.assign(MATCH, { rkPicked: false, type: 'ranked', friend: null }); futGo('gear'); } },
       { title: 'Tutorial', art: artSVG('tutorial', '#ffc23a'), foot: [['Tempo', '1 min'], ['Bônus', store.get('pp_tut', '0') === '1' ? 'Feito' : '+200', 1], ['Passos', 7]], go: () => startTutorial() },
     ] };
     case 'friend': return { title: 'Com amigo', crumb: 'Jogar', sub: 'Crie uma sala e mande o link, entre com o código ou só assista.', chips, tiles: [
@@ -5059,7 +5072,7 @@ function futPage(id) {
     case 'garage': return { title: 'Coleção', sub: 'Suas raquetes e skins, a bolinha e a sigla gravada na borracha.', chips, tiles: RACKETS.filter(isListed).map(r => {
       const lk = !isUnlocked(r), i = RACKETS.indexOf(r);
       const sk = skinById(mySkinFor(r));
-      return { title: r.name, art: futRacketArt(r), foot: [['Velocidade', r.speed], ['Efeito', r.spin], ['Controle', r.ctrl]], small: true, sel: myRacket.id === r.id, badge: myRacket.id === r.id ? 'EQUIPADA' : '', skin: sk ? sk.name : 'Original',
+      return { title: r.name, art: futRacketArt(r), foot: [['Velocidade', { bar: r.speed }], ['Efeito', { bar: r.spin }], ['Controle', { bar: r.ctrl }]], small: true, sel: myRacket.id === r.id, badge: myRacket.id === r.id ? 'EQUIPADA' : '', skin: sk ? sk.name : 'Original',
         locked: lk ? lockText(r) : '', go: () => { pickState.rk = i; if (isUnlocked(r)) { store.set('pp_racket', r.id); setPaddle('me', r); } renderPick(); UI.skinRk = r.id; futGo('skins'); } };
     }), balls: true };
     case 'skins': {
@@ -5117,6 +5130,7 @@ function renderTop() {
   const crest = $('fuCrest'); if (!crest) return;
   crest.textContent = ''; crest.append(avatarNode(myAvatar(), p ? p.name : '?', 'av'));
   $('fuName').textContent = p ? p.name : 'Visitante';
+  const fd = $('fuFdr'); if (fd) { fd.textContent = ''; if (isFounder()) fd.append(founderBadge('xs')); }
   $('fuEst').textContent = p && p.games >= 10 ? division(p.rating, p.games).name.toUpperCase() : 'NÍV ' + L.lvl;
   $('fuElo').textContent = p ? p.rating : 1000;
   $('fuXp').textContent = prog.xp;
@@ -5143,11 +5157,13 @@ function renderFut(anim = false) {
   if (P.profile) main.append(futProfile(anim));
   else main.append(row);
   if (P.pre) row.before(P.pre === 'cpu' ? futCpuSeg() : futRacketStrip());
-  if (P.cta) { const cb = h('button', { text: P.cta + '  ▶' }); cb.onclick = launchMatch; main.append(h('div', { class: 'fu-cta' }, cb)); }
+  if (P.shade && !MATCH.rkPicked) { row.classList.add('shade'); row.append(h('div', { class: 'fu-shade' }, h('span', { text: '↑ Escolha a raquete para liberar as skins' }))); }
+  if (P.cta) { const off = P.shade && !MATCH.rkPicked; const cb = h('button', { class: off ? 'off' : '', text: off ? 'Escolha a raquete' : P.cta + '  ▶' }); cb.onclick = () => { if (off) { toast('Escolha a raquete primeiro'); return; } launchMatch(); }; main.append(h('div', { class: 'fu-cta' }, cb)); }
   if (P.opts) main.append(futOptions());
   if (P.balls) main.append(futBalls());
   futSel(UI.sel, false);
 }
+const statBars = n => h('b', { class: 'fu-bars', title: `${n} de 5` }, ...[0, 1, 2, 3, 4].map(i => h('i', { class: i < n ? 'on' : '' })));
 function futTile(t, i) {
   const art = h('div', { class: 'fu-art' });
   if (t.art === 'addfriend') art.append(addFriendArt());
@@ -5162,8 +5178,9 @@ function futTile(t, i) {
   if (t.art !== 'addfriend') art.append(h('div', { class: 'fu-tt', text: t.title }));
   if (t.badge) art.append(h('span', { class: 'fu-badge' + (t.badgeCls ? ' ' + t.badgeCls : ''), text: t.badge }));
   if (t.skin) art.append(h('span', { class: 'fu-skn', text: '🎨 ' + t.skin }));
+  if (t.founder) art.append(founderBadge('xs'));
   if (t.rar) art.append(h('span', { class: 'fu-rar', style: `--rr:${RAR_COL[t.rar]}`, text: t.rar.toUpperCase() }));
-  const foot = h('div', { class: 'fu-foot' }, ...(t.foot || []).map(([l, v, star]) => h('div', {}, h('small', { text: l }), h('b', {}, String(v), star ? h('i', { class: 'fu-star' }) : null))));
+  const foot = h('div', { class: 'fu-foot' }, ...(t.foot || []).map(([l, v, star]) => h('div', {}, h('small', { text: l }), v && typeof v === 'object' && 'bar' in v ? statBars(v.bar) : h('b', {}, String(v), star ? h('i', { class: 'fu-star' }) : null))));
   const b = h('button', { class: 'fu-tile' + (t.wide ? ' wide' : '') + (t.small ? ' small' : '') + (t.locked ? ' locked' : '') + (t.dim ? ' dim' : '') + (t.sel ? ' cur' : ''), 'data-i': i, 'aria-label': t.title }, art, foot);
   if (t.locked) b.append(h('div', { class: 'fu-lock' }, h('i', { text: '🔒' })), h('div', { class: 'fu-locktxt', text: t.locked }));
   b.onclick = () => { UI.sel = i; futSel(i); if (t.go) t.go(); };
@@ -5205,7 +5222,7 @@ function futProfile(anim) {
   const p = acct.profile, cur = myAvatar(), L = levelOf(prog.xp), dv = p ? division(p.rating, p.games) : division(1000, 0);
   const card = h('div', { class: 'fu-pcard' },
     h('div', { class: 'fu-pav' }, avatarNode(cur, p ? p.name : '?', 'fu-bigav')),
-    h('div', { class: 'fu-pinfo' }, h('b', { text: p ? p.name : 'Visitante' }), h('span', { text: `${myTag() || '—'} · Nível ${L.lvl}` }),
+    h('div', { class: 'fu-pinfo' }, h('b', { text: p ? p.name : 'Visitante' }), isFounder() ? h('div', { style: 'margin: 2px 0 6px' }, founderBadge('lg')) : null, h('span', { text: `${myTag() || '—'} · Nível ${L.lvl}` }),
       h('div', { class: 'fu-pstats' }, ...[['Elo', p ? p.rating : 1000], ['Divisão', dv.name], ['V / D', p ? `${p.wins}/${p.losses}` : '0/0'], ['Pico', p ? p.peak : 1000]].map(([l, v]) => h('div', {}, h('small', { text: l }), h('b', { text: String(v) }))))));
   const bn = h('button', { class: 'fu-btn', text: '✎ Mudar nome' }); bn.onclick = () => editName();
   const bt = h('button', { class: 'fu-btn', text: '🏓 Sigla e ajustes' }); bt.onclick = () => openSettings('perfil');
@@ -5401,7 +5418,7 @@ function initMenuShell() {
   const hold = h('div', { id: 'fuHold' }); hold.append(...menu.children); card.append(hold);
   const ic = (txt, title, fn, id) => { const b = h('button', { class: 'fu-ib', title, 'aria-label': title, id }, txt); b.onclick = fn; return b; };
   const frB = ic('👥', 'Amigos', () => openFriends(), 'fuFr'); frB.append(h('span', { class: 'bd hidden', id: 'fuFrBadge' }));
-  const club = h('div', { class: 'fu-club', title: 'Perfil' }, h('div', { class: 'fu-crest', id: 'fuCrest' }), h('b', { id: 'fuName' }), h('span', { class: 'fu-key', id: 'fuEst' }));
+  const club = h('div', { class: 'fu-club', title: 'Perfil' }, h('div', { class: 'fu-crest', id: 'fuCrest' }), h('b', { id: 'fuName' }), h('span', { id: 'fuFdr' }), h('span', { class: 'fu-key', id: 'fuEst' }));
   club.onclick = () => { UI.stack = []; showPage('profile'); };
   const top = h('div', { class: 'fu-top' }, club, h('i', { class: 'fu-sep' }),
     h('span', { class: 'fu-cur elo', title: 'Elo' }, h('i', { text: 'E' }), h('span', { id: 'fuElo' })),
@@ -5763,12 +5780,12 @@ function matchPages(id) {
       if (inc) tiles.push({ title: 'Pedidos', art: artSVG('amigos', '#ff6b1a'), foot: [['Novos', inc], ['De', d.incoming[0].name], ['Ação', 'Ver']], small: true, badge: `${inc} NOVO${inc > 1 ? 'S' : ''}`, go: () => openFriends() });
       for (const f of d.friends) {
         const st = f.presence === 'jogando' ? 'Jogando' : f.online ? 'Online' : 'Offline';
-        tiles.push({ title: f.name, art: friendArt(f), small: true, dim: !f.online, badge: f.online ? (f.presence === 'jogando' ? 'JOGANDO' : 'ONLINE') : '', badgeCls: f.presence === 'jogando' ? 'play' : 'on',
+        tiles.push({ title: f.name, art: friendArt(f), small: true, dim: !f.online, founder: !!f.founder, badge: f.online ? (f.presence === 'jogando' ? 'JOGANDO' : 'ONLINE') : '', badgeCls: f.presence === 'jogando' ? 'play' : 'on',
           foot: [['Status', st], ['Elo', f.rating || 1000], ['Sigla', f.tag || '—']],
           go: () => {
             if (f.presence === 'jogando' && f.room) { if (confirm(`${f.name} está jogando agora. Quer assistir?`)) watchFriend(f); return; }
             if (!f.online) { toast(`${f.name} está offline agora. Convide quando ele estiver online.`); return; }
-            Object.assign(MATCH, { type: 'friend', friend: f }); futGo('arena');
+            Object.assign(MATCH, { rkPicked: false, type: 'friend', friend: f }); futGo('arena');
           } });
       }
       if (FR.err && !d.friends.length) tiles.push({ title: 'Tentar de novo', art: artSVG('ajustes', '#e8273f'), foot: [['Erro', 'servidor'], ['', ''], ['', '']], small: true, go: () => { FR.data = null; FR.err = ''; renderFut(); } });
@@ -5787,7 +5804,7 @@ function matchPages(id) {
       const r = myRacket, cur = mySkinFor(r), join = MATCH.type === 'join';
       const pick = id => { setRacketSkin(r, id); skinReady(id).then(() => { setPaddle('me', r); makeThumbs([[r, id]]); renderFut(); }); renderFut(); };
       const info = join ? `${MATCH.from} te convidou${MATCH.arena ? ` · ${arenaById(MATCH.arena).emoji} ${arenaById(MATCH.arena).name}` : ''}${MATCH.fmt ? ` · ${FORMATS[MATCH.fmt].short}` : ''}` : MATCH.type === 'ranked' ? 'Ranqueada: 1 game de 11, vale elo.' : `${ARENAS[pickState.ar].emoji} ${ARENAS[pickState.ar].name} · ${FORMATS[pickState.fmt].short}${MATCH.type === 'solo' ? ` · CPU ${BOT_LV[pickState.diff].name}` : MATCH.friend ? ` · contra ${MATCH.friend.name}` : ''}`;
-      return { title: 'Raquete e skin', crumb: join ? 'Início' : MATCH.type === 'ranked' ? 'Jogar' : 'Modo de jogo', sub: info + '. Escolha a raquete e a skin e confirme.', chips: join || MATCH.type === 'ranked' ? [['star', 'ÚLTIMO PASSO'], ['paint', TYPE_NAME[MATCH.type]]] : stepChips(3, 3), pre: 'rackets', cta: join ? 'Entrar na partida' : MATCH.type === 'friend' ? 'Convidar e jogar' : MATCH.type === 'ranked' ? 'Procurar partida' : 'Confirmar e jogar',
+      return { title: 'Raquete e skin', crumb: join ? 'Início' : MATCH.type === 'ranked' ? 'Jogar' : 'Modo de jogo', sub: info + '. Escolha a raquete e a skin e confirme.', chips: join || MATCH.type === 'ranked' ? [['star', 'ÚLTIMO PASSO'], ['paint', TYPE_NAME[MATCH.type]]] : stepChips(3, 3), pre: 'rackets', shade: true, cta: join ? 'Entrar na partida' : MATCH.type === 'friend' ? 'Convidar e jogar' : MATCH.type === 'ranked' ? 'Procurar partida' : 'Confirmar e jogar',
         tiles: [{ title: 'Original', art: futRacketArt(r, true), foot: [['Raridade', 'Padrão'], ['Nº', '00'], ['Status', cur ? 'Usar' : 'Em uso']], small: true, sel: !cur, badge: !cur ? 'EM USO' : '', go: () => pick('') },
           ...RSKINS.map(s => ({ title: s.name, art: futSkinArt(s), foot: [['Raridade', s.rar], ['Nº', s.n], ['Status', cur === s.id ? 'Em uso' : 'Usar']], small: true, sel: cur === s.id, rar: s.rar, badge: cur === s.id ? 'EM USO' : '', go: () => pick(s.id) }))] };
     }
@@ -5812,11 +5829,14 @@ function futRacketStrip() {
   for (const r of RACKETS.filter(isListed)) {
     const lk = !isUnlocked(r), b = h('button', { class: 'fu-rs' + (myRacket.id === r.id ? ' cur' : '') + (lk ? ' locked' : ''), title: lk ? lockText(r) : r.name });
     if (thumbs[r.id]) b.append(h('img', { src: thumbs[r.id], alt: '' }));
-    b.append(h('b', { text: r.name }), h('small', { text: lk ? '🔒' : `VEL ${r.speed} · EF ${r.spin} · CT ${r.ctrl}` }));
-    b.onclick = () => { if (lk) { toast(lockText(r)); return; } pickState.rk = RACKETS.indexOf(r); store.set('pp_racket', r.id); setPaddle('me', r); renderPick(); renderFut(); };
+    b.append(h('b', { text: r.name }), lk ? h('small', { text: '🔒 ' + lockText(r) }) : h('div', { class: 'rsb' }, 'VEL', statBars(r.speed), 'EFE', statBars(r.spin), 'CTR', statBars(r.ctrl)));
+    b.onclick = () => { if (lk) { toast(lockText(r)); return; } MATCH.rkPicked = true; pickState.rk = RACKETS.indexOf(r); store.set('pp_racket', r.id); setPaddle('me', r); renderPick(); renderFut(); };
     row.append(b);
   }
-  return h('div', { class: 'fu-sec' }, h('div', { class: 'fu-st' }, 'Raquete', h('small', { text: myRacket.name })), row, h('div', { class: 'fu-st', style: 'margin: 14px 0 0' }, 'Skin', h('small', { text: (skinById(mySkinFor(myRacket)) || { name: 'Original' }).name })));
+  const r = myRacket, srow = (l, n) => h('div', { class: 'row' }, h('span', { text: l }), statBars(n), h('b', { text: n }));
+  const stats = h('div', { class: 'fu-stats' }, h('div', {}, srow('Velocidade', r.speed), srow('Efeito', r.spin), srow('Controle', r.ctrl)), h('p', {}, h('b', { text: r.name + ' · ' + r.tag }), r.desc));
+  return h('div', { class: 'fu-sec' }, h('div', { class: 'fu-st' }, MATCH.rkPicked ? 'Raquete' : '1. Escolha a raquete', h('small', { text: MATCH.rkPicked ? myRacket.name : 'clique numa delas' })), row, stats,
+    h('div', { class: 'fu-st', style: 'margin: 14px 0 0' }, '2. Skin', h('small', { text: MATCH.rkPicked ? (skinById(mySkinFor(myRacket)) || { name: 'Original' }).name : 'libera depois da raquete' })));
 }
 function futCpuSeg() {
   return h('div', { class: 'fu-opts' }, h('div', { class: 'fu-opt' }, h('span', { class: 'fu-ol', text: 'Nível da CPU' }),
@@ -5858,16 +5878,16 @@ function cancelInvite(msg) {
 function acceptInvite(inv) {
   if (S.mode && !confirm('Sair da partida atual para jogar com seu amigo?')) return;
   if (S.mode) goMenu();
-  Object.assign(MATCH, { type: 'join', room: inv.room, from: inv.name || 'Seu amigo', arena: ARENAS.some(a => a.id === inv.arena) ? inv.arena : null, fmt: [1, 3, 5].includes(inv.fmt) ? inv.fmt : null });
+  Object.assign(MATCH, { rkPicked: false, type: 'join', room: inv.room, from: inv.name || 'Seu amigo', arena: ARENAS.some(a => a.id === inv.arena) ? inv.arena : null, fmt: [1, 3, 5].includes(inv.fmt) ? inv.fmt : null });
   if ($('frScreen')) closeFriends();
   showPanel('menu'); UI.stack = ['home']; showPage('gear');
 }
 // ---------- tela VS (5 s antes da partida) ----------
-function vsSide(cls, name, sub, av, r, sk, thumb) {
+function vsSide(cls, name, sub, av, r, sk, thumb, fdr) {
   const s = skinById(sk);
   return h('div', { class: 'vs-side ' + cls },
     h('div', { class: 'vs-av' }, avatarNode(av, name, 'fu-bigav')),
-    h('div', { class: 'vs-nm', text: name }), h('div', { class: 'vs-sub', text: sub }),
+    h('div', { class: 'vs-nm', text: name }), fdr ? founderBadge('sm') : null, h('div', { class: 'vs-sub', text: sub }),
     h('div', { class: 'vs-rk' }, thumb ? h('img', { src: thumb, alt: '' }) : h('i'), h('div', {}, h('b', { text: r.name }), h('small', { text: s ? `🎨 ${s.name}` : 'Visual original' }))));
 }
 function renderVs() {
@@ -5879,9 +5899,9 @@ function renderVs() {
   if (!VS.thumbs[ok]) { VS.thumbs[ok] = 'loading'; skinReady(oppSkin).then(() => { const o = {}; makeThumbs([[oppRacket, oppSkin]], o); VS.thumbs[ok] = o[oppRacket.id]; renderVs(); }); }
   const t2 = VS.thumbs[ok] && VS.thumbs[ok] !== 'loading' ? VS.thumbs[ok] : null;
   el.querySelector('.vs-row').replaceChildren(
-    vsSide('l', p ? p.name : 'Você', `${myTag() || ''} · Nível ${levelOf(prog.xp).lvl}`, myAvatar(), myRacket, mySkinFor(myRacket), thumbs[myRacket.id]),
+    vsSide('l', p ? p.name : 'Você', `${myTag() || ''} · Nível ${levelOf(prog.xp).lvl}`, myAvatar(), myRacket, mySkinFor(myRacket), thumbs[myRacket.id], isFounder()),
     h('div', { class: 'vs-mid' }, h('b', { text: 'VS' })),
-    vsSide('r', oppName, solo ? `Estilo ${BOT_STYLES[botStyle] ? BOT_STYLES[botStyle].name : ''}` : (oppTag || ''), oppAv, oppRacket, oppSkin, t2));
+    vsSide('r', oppName, solo ? `Estilo ${BOT_STYLES[botStyle] ? BOT_STYLES[botStyle].name : ''}` : (oppTag || ''), oppAv, oppRacket, oppSkin, t2, !solo && oppFounder));
   el.querySelector('.vs-top').textContent = `${A.def.emoji}  ${A.def.name.toUpperCase()}  ·  ${FORMATS[S.format].short}  ·  ${S.ranked ? 'RANQUEADA' : solo ? 'TREINO' : 'AMISTOSO'}`;
 }
 function showVs() {
@@ -5959,6 +5979,170 @@ function initMatchUI() {
   @media (max-width: 760px) { .vs-row { grid-template-columns: 1fr; gap: 6px; } .vs-side.r { align-items: flex-start; text-align: left; } .vs-side.r .vs-rk { flex-direction: row; } .vs-mid b { font-size: 60px; } .vs-nm { max-width: 90vw; } }`;
   document.head.appendChild(st);
   $('wait').prepend(h('div', { id: 'invWait' }));
+}
+
+/* =====================================================================
+   VITÓRIA: música, título grande com o nome do jogador, efeitos na tela
+   e o último ponto passando em replay no fundo. Também: selo de fundador
+   e som da câmera lenta nos replays.
+   ===================================================================== */
+const VICTORY_SHA = 'a363b625c293d2675c79ba60945c9720d2de3235';
+const VIC = { el: null, audio: null, g: null, playing: false, timer: 0 };
+function playVictoryMusic() {
+  ensureAudio(); if (!actx) return;
+  if (!VIC.audio) {
+    const a = new Audio(); a.crossOrigin = 'anonymous'; a.preload = 'auto';
+    a.src = `https://cdn.jsdelivr.net/gh/amxgroup07/pingpong-online@${VICTORY_SHA}/assets/victory.mp3`;
+    a.onerror = () => { if (!a.dataset.f) { a.dataset.f = 1; a.src = `https://raw.githubusercontent.com/amxgroup07/pingpong-online/${VICTORY_SHA}/assets/victory.mp3`; a.play().catch(() => { }); } };
+    a.onended = () => { VIC.playing = false; updateMenuMusic(); };
+    try { const src = actx.createMediaElementSource(a), g = actx.createGain(); g.gain.value = 1.8; src.connect(g).connect(VOL.music); VIC.g = g; } catch (e) { console.warn('vitória', e); }
+    VIC.audio = a;
+  }
+  if (muted || cfg.vMusic <= 0) return;
+  VIC.playing = true; updateMenuMusic();
+  VIC.audio.currentTime = 0; VIC.audio.play().catch(() => { VIC.playing = false; });
+}
+function stopVictoryMusic() { if (VIC.audio && !VIC.audio.paused) { VIC.audio.pause(); } VIC.playing = false; }
+// selo de usuário fundador (quem entrou até o fim de dezembro de 2026)
+function founderBadge(size = 'sm') { return h('span', { class: 'fdr ' + size, title: 'Usuário fundador: entrou no jogo até dezembro de 2026' }, h('i', { text: '★' }), 'FUNDADOR'); }
+const isFounder = () => !!(acct.profile && acct.profile.founder);
+let oppFounder = false;
+function founderWelcome() {
+  if (!isFounder() || store.get('pp_fdr_seen', '') === '1') return;
+  store.set('pp_fdr_seen', '1');
+  const ok = h('button', { class: 'fu-btn', text: 'Valeu! ▶' });
+  const el = h('div', { id: 'fdrPop' }, h('div', { class: 'fdr-card' },
+    h('div', { class: 'fdr-medal' }, h('i', { text: '★' })), h('small', { text: 'SELO DESBLOQUEADO' }), h('b', { text: 'Usuário fundador' }),
+    h('p', { text: 'Você está entre os primeiros jogadores do Ping Pong Online. O selo fica no seu perfil para sempre e aparece para seus amigos, no ranking e antes de cada partida.' }), ok));
+  ok.onclick = () => { el.classList.add('out'); setTimeout(() => el.remove(), 400); };
+  document.body.append(el);
+  tone(660, 0.15, 0.05, 'triangle'); tone(880, 0.15, 0.05, 'triangle', 0.12); tone(1320, 0.3, 0.05, 'triangle', 0.24);
+}
+// ---------- tela de vitória ----------
+function showWin() {
+  let el = $('winScreen');
+  if (!el) {
+    el = h('div', { id: 'winScreen' }, h('div', { class: 'ws-rays' }), h('div', { class: 'ws-glow' }), h('div', { class: 'ws-conf' }),
+      h('div', { class: 'ws-mid' }, h('div', { class: 'ws-title' }), h('div', { class: 'ws-who' }), h('div', { class: 'ws-score' })),
+      h('button', { class: 'ws-skip', text: 'Continuar  ⏭' }));
+    el.querySelector('.ws-skip').onclick = e => { e.stopPropagation(); finishVictory(); };
+    document.body.append(el);
+  }
+  const p = acct.profile, name = p ? p.name : 'Você';
+  const t = el.querySelector('.ws-title'); t.textContent = '';
+  [...'VITÓRIA'].forEach((ch, i) => t.append(h('span', { style: `animation-delay:${0.15 + i * 0.07}s`, text: ch })));
+  const who = el.querySelector('.ws-who'); who.textContent = '';
+  who.append(h('div', { class: 'ws-av' }, avatarNode(myAvatar(), name, 'fu-bigav')), h('div', {}, h('b', { text: name }), isFounder() ? founderBadge('sm') : null));
+  const g = S.gameScores || [];
+  el.querySelector('.ws-score').textContent = S.format > 1
+    ? `${FORMATS[S.format].short} · ${S.games[String(S.mySide)]} × ${S.games[String(-S.mySide)]} em games · contra ${oppLabel()}`
+    : `${(g[0] || S.score)[String(S.mySide)]} × ${(g[0] || S.score)[String(-S.mySide)]} contra ${oppLabel()}`;
+  const cf = el.querySelector('.ws-conf'); cf.textContent = '';
+  const cols = ['#ffc23a', '#ff6b1a', '#ffffff', '#3d9bff', '#ff3d7f', '#22c55e'];
+  for (let i = 0; i < 70; i++) cf.append(h('i', { style: `left:${Math.random() * 100}%;background:${cols[i % cols.length]};animation-duration:${2.6 + Math.random() * 2.6}s;animation-delay:${Math.random() * 2.5}s;transform:rotate(${Math.random() * 360}deg);width:${6 + Math.random() * 6}px;height:${10 + Math.random() * 8}px` }));
+  el.classList.remove('out'); el.classList.add('on');
+  document.body.classList.add('winning');
+}
+function hideWin() {
+  const el = $('winScreen'); if (!el || !el.classList.contains('on')) return;
+  el.classList.add('out'); setTimeout(() => el.classList.remove('on', 'out'), 600);
+  document.body.classList.remove('winning');
+}
+function victoryLoop() {                                  // último ponto em replay, repetindo no fundo
+  if (!(END.active && END.stage === 'victory') || !RP.last) return;
+  startReplay(RP.last, { mode: 'bg', title: 'VITÓRIA', onEnd: () => setTimeout(victoryLoop, 50) });
+}
+function startVictory() {
+  END.stage = 'victory'; END.t = 0;
+  showWin(); playVictoryMusic(); fxWin(true);
+  celebrate(1.3); setTimeout(() => { if (END.active) celebrate(1); }, 2200); setTimeout(() => { if (END.active) celebrate(0.8); }, 5200);
+  victoryLoop();
+  clearTimeout(VIC.timer); VIC.timer = setTimeout(() => { if (END.stage === 'victory') finishVictory(); }, VIC.hold || 11000);
+}
+function finishVictory() {
+  clearTimeout(VIC.timer);
+  if (END.stage !== 'victory') return;
+  END.stage = 'hlwait'; hideWin();
+  if (RP.play) endReplay(false);
+  $('rpTitle').textContent = '🏆 VITÓRIA'; $('rpSkip').textContent = 'Ver resultado ⏭';
+  nextHighlight();
+}
+// ---------- som da câmera lenta: grave contínuo, "ar" abafado, coração e varrida na entrada/saída ----------
+const SLOW = { on: false, nodes: null, beat: 0 };
+function slowAudio(on) {
+  if (!actx || SLOW.on === on) return;
+  SLOW.on = on;
+  const t = actx.currentTime;
+  if (!SLOW.nodes) {
+    const g = actx.createGain(); g.gain.value = 0; g.connect(VOL.fx[0]);
+    const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 380; lp.connect(g);
+    for (const [f, d] of [[55, 0], [82.4, 4], [110, -5]]) { const o = actx.createOscillator(); o.type = 'sine'; o.frequency.value = f; o.detune.value = d; const og = actx.createGain(); og.gain.value = f === 55 ? 0.6 : 0.25; o.connect(og).connect(lp); o.start(); }
+    const n = actx.createBufferSource(); n.buffer = noiseBuf; n.loop = true; const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 420; bp.Q.value = 0.6;
+    const ng = actx.createGain(); ng.gain.value = 0.5; n.connect(bp).connect(ng).connect(g); n.start();
+    SLOW.nodes = { g };
+  }
+  SLOW.nodes.g.gain.setTargetAtTime(on ? 0.09 : 0, t, on ? 0.12 : 0.25);
+  if (VOL.crowdDuck) VOL.crowdDuck.gain.setTargetAtTime(on ? 0.3 : 1, t, 0.2);   // torcida fica abafada
+  // varrida: desce ao entrar, sobe ao sair
+  const s = actx.createBufferSource(); s.buffer = noiseBuf; const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 6;
+  f.frequency.setValueAtTime(on ? 3200 : 220, t); f.frequency.exponentialRampToValueAtTime(on ? 180 : 3600, t + (on ? 0.7 : 0.45));
+  const sg = actx.createGain(); sg.gain.setValueAtTime(0.0001, t); sg.gain.exponentialRampToValueAtTime(0.16, t + 0.08); sg.gain.exponentialRampToValueAtTime(0.0001, t + (on ? 0.8 : 0.5));
+  s.connect(f).connect(sg).connect(sfxBus); s.start(t, Math.random() * 2); s.stop(t + 0.9);
+  clearInterval(SLOW.beat);
+  if (on) {
+    const thump = (d, v) => { const tt = actx.currentTime + d, o = actx.createOscillator(), gg = actx.createGain(); o.frequency.setValueAtTime(70, tt); o.frequency.exponentialRampToValueAtTime(38, tt + 0.16); gg.gain.setValueAtTime(0.0001, tt); gg.gain.exponentialRampToValueAtTime(v, tt + 0.012); gg.gain.exponentialRampToValueAtTime(0.0001, tt + 0.22); o.connect(gg).connect(VOL.fx[0]); o.start(tt); o.stop(tt + 0.25); };
+    const beat = () => { if (!SLOW.on) return; thump(0, 0.22); thump(0.24, 0.14); };
+    beat(); SLOW.beat = setInterval(beat, 900);
+  }
+}
+function initVictoryUI() {
+  const st = document.createElement('style');
+  st.textContent = `
+  .fdr { display: inline-flex; align-items: center; gap: 5px; font: 800 12px var(--fu-font, system-ui); letter-spacing: .1em; color: #2a1a00; background: linear-gradient(135deg, #fff1b0, #ffc23a 45%, #c98a0f); padding: 2px 9px 2px 6px; box-shadow: 0 0 14px rgba(255,194,58,.45); clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); vertical-align: middle; white-space: nowrap; }
+  .fdr i { font-style: normal; font-size: 12px; } .fdr.xs { font-size: 10px; padding: 1px 7px 1px 5px; } .fdr.lg { font-size: 16px; padding: 4px 14px 4px 10px; }
+  .fu-tile .fdr.xs { position: absolute; top: 10px; right: 10px; }
+  #fdrPop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; background: rgba(5,7,12,.75); animation: vsIn .4s both; font-family: var(--fu-font); } #fdrPop.out { animation: vsOut .4s both; }
+  .fdr-card { width: min(420px, 90vw); background: rgba(18,22,31,.98); border-bottom: 4px solid #ffc23a; padding: 28px 26px 22px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 6px; animation: fuPop2 .6s cubic-bezier(.2,1.5,.4,1) both; }
+  @keyframes fuPop2 { from { transform: scale(.8); opacity: 0; } }
+  .fdr-medal { width: 110px; height: 120px; clip-path: polygon(50% 0, 100% 14%, 100% 62%, 50% 100%, 0 62%, 0 14%); background: linear-gradient(135deg, #fff1b0, #ffc23a 45%, #a0640a); display: grid; place-items: center; box-shadow: 0 0 40px rgba(255,194,58,.5); margin-bottom: 6px; animation: fdrShine 2.4s ease-in-out infinite; }
+  .fdr-medal i { font-style: normal; font-size: 58px; color: #5a3500; } @keyframes fdrShine { 50% { filter: brightness(1.25); } }
+  .fdr-card small { font: 800 13px var(--fu-font); letter-spacing: .2em; color: #ffc23a; } .fdr-card b { font: italic 900 38px var(--fu-font); text-transform: uppercase; } .fdr-card p { font: 500 16px var(--fu-font); color: rgba(255,255,255,.75); margin: 2px 0 12px; line-height: 1.35; }
+  /* vitória */
+  #winScreen { position: fixed; inset: 0; z-index: 64; display: none; pointer-events: none; overflow: hidden; font-family: var(--fu-font); color: #fff; background: radial-gradient(ellipse at 50% 46%, rgba(5,7,12,.55), rgba(5,7,12,.15) 55%, rgba(5,7,12,.6)); }
+  #winScreen.on { display: block; animation: vsIn .6s both; } #winScreen.out { animation: vsOut .6s both; }
+  .ws-rays { position: absolute; left: 50%; top: 42%; width: 180vmax; height: 180vmax; transform: translate(-50%, -50%); background: repeating-conic-gradient(from 0deg, rgba(255,194,58,.16) 0 6deg, transparent 6deg 18deg); mask: radial-gradient(circle, #000 0, transparent 55%); -webkit-mask: radial-gradient(circle, #000 0, transparent 55%); animation: wsSpin 22s linear infinite; }
+  @keyframes wsSpin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+  .ws-glow { position: absolute; left: 50%; top: 40%; width: 70vmin; height: 40vmin; transform: translate(-50%, -50%); background: radial-gradient(ellipse, rgba(255,150,40,.45), transparent 70%); animation: wsPulse 1.6s ease-in-out infinite; }
+  @keyframes wsPulse { 50% { opacity: .55; transform: translate(-50%, -50%) scale(1.08); } }
+  .ws-conf i { position: absolute; top: -20px; display: block; animation: wsFall linear infinite; opacity: .9; }
+  @keyframes wsFall { to { transform: translateY(115vh) rotate(720deg); } }
+  .ws-mid { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-58%); display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .ws-title { font: italic 900 clamp(80px, 15vw, 220px) / .85 var(--fu-font); letter-spacing: .01em; display: flex; filter: drop-shadow(0 8px 0 rgba(0,0,0,.35)) drop-shadow(0 0 40px rgba(255,160,40,.55)); }
+  .ws-title span { display: inline-block; background: linear-gradient(180deg, #fffbe6 0%, #ffd45a 45%, #ff8a1f 100%); -webkit-background-clip: text; background-clip: text; color: transparent; animation: wsLetter .7s cubic-bezier(.2,1.6,.4,1) both, wsShine 2.6s 1.2s ease-in-out infinite; }
+  @keyframes wsLetter { from { opacity: 0; transform: translateY(-60px) scale(1.8) rotate(-8deg); } }
+  @keyframes wsShine { 50% { filter: brightness(1.35); } }
+  .ws-who { display: flex; align-items: center; gap: 14px; animation: rlIn .6s .8s both; background: rgba(10,12,18,.72); padding: 8px 22px 8px 10px; border-bottom: 4px solid var(--fu-or, #ff6b1a); }
+  .ws-av { position: relative; width: 64px; height: 64px; } .ws-av .fu-bigav { width: 100%; top: 50%; font-size: 30px; }
+  .ws-who b { display: block; font: italic 900 clamp(30px, 4vw, 46px) / 1 var(--fu-font); text-transform: uppercase; margin-bottom: 4px; }
+  .ws-score { font: 700 19px var(--fu-font); letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,.85); animation: rlIn .6s 1.1s both; text-shadow: 0 2px 10px rgba(0,0,0,.7); }
+  .ws-skip { position: absolute; right: 26px; bottom: 26px; pointer-events: auto; border: 0; background: rgba(255,255,255,.12); color: #fff; font: 700 17px var(--fu-font); text-transform: uppercase; padding: 10px 18px; cursor: pointer; } .ws-skip:hover { background: #fff; color: #0b0e14; }
+  body.winning #rpUI, body.winning #bigBanner { display: none !important; }
+  body.winning #hud, body.winning #chatFeed, body.winning #lockOverlay { opacity: 0 !important; pointer-events: none; }
+  /* barras de atributos das raquetes */
+  .fu-bars { display: flex !important; gap: 3px; margin-top: 4px; height: 9px; } .fu-bars i { flex: 1; max-width: 16px; background: rgba(255,255,255,.14); transform: skewX(-14deg); } .fu-bars i.on { background: linear-gradient(90deg, #ff9a3c, #ff6b1a); box-shadow: 0 0 6px rgba(255,107,26,.5); }
+  .fu-rs .rsb { grid-column: 2; display: grid; grid-template-columns: 26px 1fr; gap: 2px 6px; align-items: center; font: 700 11px var(--fu-font); color: rgba(255,255,255,.6); }
+  .fu-rs .rsb .fu-bars { margin: 0; height: 7px; }
+  .fu-stats { display: grid; grid-template-columns: minmax(160px, 260px) 1fr; gap: 16px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.07); }
+  .fu-stats .row { display: grid; grid-template-columns: 96px 1fr 26px; gap: 10px; align-items: center; font: 700 15px var(--fu-font); text-transform: uppercase; color: rgba(255,255,255,.75); margin: 4px 0; }
+  .fu-stats .row .fu-bars { height: 14px; margin: 0; } .fu-stats .row .fu-bars i { max-width: none; } .fu-stats .row b { color: #fff; font-size: 18px; text-align: right; }
+  .fu-stats p { margin: 0; font: 500 15px var(--fu-font); color: rgba(255,255,255,.7); line-height: 1.35; } .fu-stats p b { display: block; font: italic 900 24px var(--fu-font); text-transform: uppercase; color: #fff; margin-bottom: 2px; }
+  /* skins escurecidas até escolher a raquete */
+  .fu-tiles.shade { position: relative; } .fu-tiles.shade .fu-tile { filter: brightness(.28) grayscale(.7); pointer-events: none; }
+  .fu-shade { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; background: linear-gradient(180deg, rgba(5,7,12,.75), rgba(5,7,12,.35) 50%, rgba(5,7,12,.75)); }
+  .fu-shade span { font: italic 900 clamp(22px, 2.6vw, 32px) var(--fu-font); text-transform: uppercase; padding: 10px 22px; background: rgba(10,12,18,.85); border-bottom: 3px solid var(--fu-or); animation: wsPulse2 1.6s ease-in-out infinite; } @keyframes wsPulse2 { 50% { opacity: .7; } }
+  .fu-cta button.off { background: #3a3f4d; box-shadow: none; cursor: default; }
+  @media (max-width: 760px) { .fu-stats { grid-template-columns: 1fr; } }`;
+  document.head.appendChild(st);
 }
 
 /* =====================================================================
@@ -6054,7 +6238,7 @@ function frame(now) {
   if (RP.play) {
     replayStep(dt);
     if (RP.play) replayCamera(dt); else updateCamera(dt, now);
-  } else if (END.active && END.stage === 'party') {
+  } else if (END.active && (END.stage === 'party' || END.stage === 'victory')) {
     endStep(dt);
   } else if (S.phase === 'lobby') {
     const a = now / 11000;
@@ -6125,10 +6309,11 @@ initFeelUI();
 initSpecUI();
 initFriendsUI();
 initMatchUI();
+initVictoryUI();
 initMenuShell();
 initGate();
 initUiFx();
 const verParam = new URLSearchParams(location.search).get('ver');
 if (roomParam) gateAfter(() => { if (S.phase === 'lobby') joinRoom(roomParam); });
 if (verParam && !roomParam) { $('inCode').value = verParam.toUpperCase(); gateAfter(() => { if (S.phase === 'lobby') joinSpectate(verParam); }); }
-window.__pp = { MATCH, VS, INV, launchMatch, acceptInvite, showVs, hideVs, get oppAvatar() { return oppAvatar; }, get oppSkin() { return oppSkin; }, RSKINS, GATE, gateSync, UI, showPage, futGo, futTab, renderFut, AVATARS, avatarURI, setAvatar, menuMusic, updateMenuMusic, FR, loadFriends, openFriends, socialPoll, showInvite, SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+window.__pp = { RPl: () => RP.last, startVictory, finishVictory, showWin, VIC, SLOW, slowAudio, founderBadge, MATCH, VS, INV, launchMatch, acceptInvite, showVs, hideVs, get oppAvatar() { return oppAvatar; }, get oppSkin() { return oppSkin; }, RSKINS, GATE, gateSync, UI, showPage, futGo, futTab, renderFut, AVATARS, avatarURI, setAvatar, menuMusic, updateMenuMusic, FR, loadFriends, openFriends, socialPoll, showInvite, SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
