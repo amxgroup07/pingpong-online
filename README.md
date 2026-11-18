@@ -31,6 +31,19 @@ npx vercel        # primeira vez: faz login e cria o projeto
 npx vercel --prod # publica em produção
 ```
 
+## Menu principal (estilo Rocket League)
+
+- Fundo com a arte do jogo (`assets/menu-bg.jpg`; no celular, a versão menor), com zoom lento, um brilho que passa de vez em quando e faíscas subindo.
+- Barra de cima: logo, perfil (avatar, nome, nível com barra de XP, elo/colocação), 👥 amigos (com contador de pedidos), 🏆 ranking e ⚙️ configurações.
+- Navegação à esquerda com botões inclinados animados e um "tic" baixinho no hover: **JOGAR**, **GARAGEM**, Amigos, Ranking, Tutorial, Configurações e Início. No celular vira uma faixa horizontal no topo.
+- **Início:** conta e missões do dia, com o botão "Jogar agora".
+- **Jogar:** três cartões (Com amigo, Ranqueada, Treino com o nível da CPU) e, embaixo, cenário e formato da partida.
+- **Garagem:** raquete, bolinha e sigla.
+- **ESC** volta para o Início. Sala de espera, "conectando" e fila da ranqueada aparecem como janelas por cima do fundo.
+- Enquanto o menu está na tela, o 3D não é desenhado (economiza bateria e placa de vídeo).
+- **Música do menu:** `assets/menu-music.mp3`, em loop, como som ambiente baixo. Entra e sai devagar; toca mais baixa na tela de resultado e some durante a partida (a menos que "música durante a partida" esteja ligada). Segue o volume de **Música** nas configurações e o 🔇.
+- Os arquivos do menu vêm do jsDelivr fixados no commit (`ASSET_SHA` no `game.js`); se trocar a imagem ou a música, faça o commit e atualize esse SHA.
+
 ## Como jogar com o amigo
 1. Abra o site → **Criar sala e chamar um amigo**.
 2. Mande o link (botão **WhatsApp** ou **Copiar link**). Seu amigo abre e entra direto.
