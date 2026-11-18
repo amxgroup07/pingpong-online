@@ -60,6 +60,9 @@ Todos os botões e cartões reagem ao hover e ao clique (subida leve, brilho, "o
 - Fundo: a arte do jogo (`assets/menu-bg.jpg`; no celular, a versão menor) com zoom lento. Enquanto o menu está na tela, o 3D não é desenhado.
 - **Música do menu:** `assets/menu-music.mp3`, em loop e baixa, só depois do login; mais baixa na tela de resultado e some na partida (a menos que "música durante a partida" esteja ligada). Segue o volume de **Música** e o 🔇. Os arquivos vêm do jsDelivr fixados no commit (`ASSET_SHA` no `game.js`).
 
+## Notificações (🔔)
+Botão laranja **NOTIFICAÇÕES** ao lado do de Amigos, com contador e o sininho balançando quando tem novidade. Abre um painel com os **convites de partida** (avatar, arena, formato e quanto falta para expirar; **Jogar** leva direto para a escolha de raquete/skin) e os **pedidos de amizade** (Aceitar / Recusar). O aviso que aparece no canto continua; o que for respondido lá some do painel. No menu, o jogo procura convites a cada ~10 s (8 s com o painel aberto, 30 s durante a partida).
+
 ## Vitória, selo de fundador e câmera lenta
 
 - **Vitória:** quem ganha vê a tela "VITÓRIA" (letras douradas entrando uma a uma, raios girando, brilho e confete), com o avatar, o nome e o selo de fundador embaixo e o placar. A música `assets/victory.mp3` toca por cima (segue o volume de **Música**; a do menu espera ela acabar) e o **último ponto da partida passa em replay no fundo**, repetindo. "Continuar" (ou espaço) pula; depois de ~11 s seguem os melhores momentos e o resultado. Quem perde vê o fim de jogo de antes.

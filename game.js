@@ -4716,7 +4716,7 @@ async function socialPoll() {
   } catch (e) { FR.err = String(e.message || e); }
 }
 function socialTick() {                               // ~30 s normal, ~8 s com a tela de amigos aberta
-  const gap = FR.open ? 8000 : 30000;
+  const gap = FR.open || NOTIF.open ? 8000 : S.phase === 'lobby' ? 10000 : 30000;
   if (acct.user && performance.now() - FR.lastPoll > gap) { socialPoll(); if (FR.open) loadFriends(); }
 }
 setInterval(socialTick, 2000);
@@ -4734,6 +4734,7 @@ function renderFrBadge() {
   const n = FR.incoming | 0, b = $('frBadge');
   if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
   const b2 = $('fuFrBadge'); if (b2) { b2.textContent = n; b2.classList.toggle('hidden', !n); }
+  if (window.__ntReady) renderNotifBadge();
 }
 const agoTxt = d => {
   if (!d) return 'offline';
@@ -4770,8 +4771,9 @@ function showInvite(inv) {
   const el = $('invPop'); if (!el) return;
   el.textContent = '';
   const yes = h('button', { class: 'btn', text: 'Aceitar' }), no = h('button', { class: 'btn ghost', text: 'Agora não' });
-  yes.onclick = () => { el.classList.add('hidden'); acceptInvite(inv); };
-  no.onclick = () => el.classList.add('hidden');
+  yes.onclick = () => { el.classList.add('hidden'); dropInviteNotif(inv); acceptInvite(inv); };
+  no.onclick = () => { el.classList.add('hidden'); dropInviteNotif(inv); };
+  addInviteNotif(inv);
   const ar = ARENAS.find(a => a.id === inv.arena), fm = FORMATS[inv.fmt];
   el.append(h('div', { class: 'ip' }, avatarNode(validAv(inv.avatar), inv.name, 'av'), h('div', {}, h('b', { text: inv.name || 'Um amigo' }), h('span', { text: 'te chamou para uma partida' }), (ar || fm) ? h('small', { text: [ar ? `${ar.emoji} ${ar.name}` : '', fm ? fm.short : ''].filter(Boolean).join(' · ') }) : null)), h('div', { class: 'inv-b' }, yes, no));
   el.classList.remove('hidden');
@@ -5422,6 +5424,7 @@ function initMenuShell() {
   // o que existia no menu vai para um depósito escondido (os ids e eventos continuam valendo)
   const hold = h('div', { id: 'fuHold' }); hold.append(...menu.children); card.append(hold);
   const ic = (txt, title, fn, id) => { const b = h('button', { class: 'fu-ib', title, 'aria-label': title, id }, txt); b.onclick = fn; return b; };
+  const ntB = ic('', 'Notificações', () => toggleNotif(), 'fuNt'); ntB.classList.add('fu-frb', 'fu-ntb'); ntB.append(h('i', { text: '🔔' }), h('span', { class: 'lb', text: 'NOTIFICAÇÕES' }), h('span', { class: 'bd hidden', id: 'fuNtBadge' }));
   const frB = ic('', 'Amigos', () => openFriends(), 'fuFr'); frB.classList.add('fu-frb'); frB.append(h('i', { text: '👥' }), h('span', { class: 'lb', text: 'AMIGOS' }), h('span', { class: 'bd hidden', id: 'fuFrBadge' }));
   const club = h('div', { class: 'fu-club', title: 'Perfil' }, h('div', { class: 'fu-crest', id: 'fuCrest' }), h('b', { id: 'fuName' }), h('span', { id: 'fuFdr' }), h('span', { class: 'fu-key', id: 'fuEst' }));
   club.onclick = () => { UI.stack = []; showPage('profile'); };
@@ -5432,7 +5435,7 @@ function initMenuShell() {
     h('i', { class: 'fu-sp' }),
     h('span', { class: 'fu-timer', title: 'Novas missões em' }, '⏱ ', h('span', { id: 'fuTimer' })),
     h('span', { class: 'fu-mbar', title: 'Missões de hoje' }, h('i', { id: 'fuMisBar' })), h('span', { id: 'fuMisTxt' }), h('i', { class: 'fu-sep s2' }),
-    h('span', { class: 'fu-lvl', id: 'fuLvl', title: 'Nível' }), frB, ic('🏆', 'Ranking', () => openRanking()), ic('⚙️', 'Ajustes', () => openSettings()));
+    h('span', { class: 'fu-lvl', id: 'fuLvl', title: 'Nível' }), ntB, frB, ic('🏆', 'Ranking', () => openRanking()), ic('⚙️', 'Ajustes', () => openSettings()));
   const tabs = h('div', { class: 'fu-tabs', role: 'tablist' }, h('span', { class: 'fu-key', text: 'Q' }),
     ...TABS.map(([id, label]) => { const b = h('button', { 'data-t': id, role: 'tab', text: label }); b.onclick = () => { ensureAudio(); futTab(id); }; return b; }), h('span', { class: 'fu-key', text: 'E' }));
   const hints = h('div', { class: 'fu-hints' }, h('span', {}, h('i', { class: 'fu-key', text: '⏎' }), 'Selecionar'), h('span', {}, h('i', { class: 'fu-key', text: 'Esc' }), 'Voltar'),
@@ -6167,6 +6170,89 @@ function initVictoryUI() {
 }
 
 /* =====================================================================
+   NOTIFICAÇÕES: convites de partida e pedidos de amizade num lugar só
+   ===================================================================== */
+const NOTIF = { invites: [], open: false };
+const notifCount = () => NOTIF.invites.length + (FR.incoming | 0);
+function pruneNotif() { const t = Date.now(); NOTIF.invites = NOTIF.invites.filter(i => t - i.at < 110000); }
+function addInviteNotif(inv) {
+  pruneNotif();
+  if (!NOTIF.invites.some(x => x.id === inv.id)) NOTIF.invites.unshift({ ...inv, at: Date.now() });
+  renderNotifBadge(); if (NOTIF.open) renderNotif();
+}
+function dropInviteNotif(inv) { NOTIF.invites = NOTIF.invites.filter(x => x.id !== inv.id); renderNotifBadge(); if (NOTIF.open) renderNotif(); }
+function renderNotifBadge() {
+  if (!window.__ntReady) return;
+  pruneNotif();
+  const n = notifCount(), b = $('fuNtBadge'), btn = $('fuNt');
+  if (b) { b.textContent = n; b.classList.toggle('hidden', !n); }
+  if (btn) btn.classList.toggle('ring', n > 0);
+}
+function toggleNotif(force) {
+  NOTIF.open = force ?? !NOTIF.open;
+  $('ntPanel').classList.toggle('hidden', !NOTIF.open);
+  if (NOTIF.open) { ensureAudio(); renderNotif(); if (acct.user) loadFriends().then(() => { if (NOTIF.open) renderNotif(); }); }
+}
+function renderNotif() {
+  const box = $('ntList'); if (!box) return;
+  pruneNotif(); box.textContent = '';
+  const reqs = (FR.data && FR.data.incoming) || [];
+  $('ntCount').textContent = NOTIF.invites.length + reqs.length || '';
+  const item = (av, name, txt, sub, onYes, onNo, yesTxt) => {
+    const yes = h('button', { class: 'nt-yes', text: yesTxt || 'Aceitar' }), no = h('button', { class: 'nt-no', text: 'Recusar' });
+    yes.onclick = e => { e.stopPropagation(); onYes(); }; no.onclick = e => { e.stopPropagation(); onNo(); };
+    return h('div', { class: 'nt-it' }, avatarNode(av, name, 'nt-av'), h('div', { class: 'nt-tx' }, h('b', { text: name }), h('span', { text: txt }), sub ? h('small', { text: sub }) : null), h('div', { class: 'nt-ac' }, yes, no));
+  };
+  if (NOTIF.invites.length) {
+    box.append(h('div', { class: 'nt-sec', text: 'Convites de partida' }));
+    for (const inv of NOTIF.invites) {
+      const ar = ARENAS.find(a => a.id === inv.arena), fm = FORMATS[inv.fmt];
+      const left = Math.max(0, Math.round((110000 - (Date.now() - inv.at)) / 1000));
+      box.append(item(validAv(inv.avatar), inv.name || 'Um amigo', 'te chamou para uma partida', [ar ? `${ar.emoji} ${ar.name}` : '', fm ? fm.short : '', `expira em ${left}s`].filter(Boolean).join(' · '),
+        () => { dropInviteNotif(inv); $('invPop').classList.add('hidden'); toggleNotif(false); acceptInvite(inv); },
+        () => { dropInviteNotif(inv); $('invPop').classList.add('hidden'); }, 'Jogar'));
+    }
+  }
+  if (reqs.length) {
+    box.append(h('div', { class: 'nt-sec', text: 'Pedidos de amizade' }));
+    for (const f of reqs) box.append(item(f.avatar, f.name, 'quer ser seu amigo', f.at ? agoTxt(f.at).replace(/^visto /, '') : '',
+      async () => { await frAction('friend_respond', { p_from: f.id, p_accept: true }, `Agora você e ${f.name} são amigos! 🎉`); renderNotif(); },
+      async () => { await frAction('friend_respond', { p_from: f.id, p_accept: false }); renderNotif(); }));
+  } else if (FR.incoming && !FR.data) box.append(h('p', { class: 'nt-empty', text: 'Carregando pedidos…' }));
+  if (!NOTIF.invites.length && !reqs.length && !(FR.incoming && !FR.data)) box.append(h('div', { class: 'nt-empty' }, h('i', { text: '🔔' }), h('b', { text: 'Tudo em dia' }), h('span', { text: 'Convites de partida e pedidos de amizade aparecem aqui.' })));
+}
+function initNotifUI() {
+  const st = document.createElement('style');
+  st.textContent = `
+  .fu-ib.fu-frb.fu-ntb { background: linear-gradient(180deg, #ff8a3d, #ea580c); box-shadow: 0 0 0 1px rgba(255,255,255,.15) inset, 0 4px 16px rgba(255,107,26,.4); animation: none; }
+  .fu-ib.fu-frb.fu-ntb:hover { background: linear-gradient(180deg, #ffa25c, #f97316); box-shadow: 0 0 0 1px rgba(255,255,255,.3) inset, 0 6px 22px rgba(255,107,26,.65); }
+  .fu-ib.fu-frb.fu-ntb.ring i { display: inline-block; animation: ntRing 1.8s ease-in-out infinite; transform-origin: 50% 10%; }
+  .fu-ib.fu-frb.fu-ntb.ring { animation: ntGlow 1.8s ease-in-out infinite; }
+  @keyframes ntRing { 0%, 50%, 100% { transform: rotate(0); } 10% { transform: rotate(16deg); } 20% { transform: rotate(-14deg); } 30% { transform: rotate(10deg); } 40% { transform: rotate(-6deg); } }
+  @keyframes ntGlow { 50% { box-shadow: 0 0 0 1px rgba(255,255,255,.2) inset, 0 4px 26px rgba(255,107,26,.85); } }
+  #ntPanel { position: fixed; top: 48px; right: 14px; width: min(400px, 94vw); max-height: min(70vh, 560px); overflow-y: auto; z-index: 55; background: rgba(16,20,29,.98); border-bottom: 4px solid var(--fu-or); box-shadow: 0 24px 60px rgba(0,0,0,.6); font-family: var(--fu-font); animation: ntIn .25s cubic-bezier(.2,.9,.3,1.2); }
+  #ntPanel.hidden { display: none; } @keyframes ntIn { from { opacity: 0; transform: translateY(-10px); } }
+  .nt-hd { display: flex; align-items: center; gap: 8px; padding: 12px 16px; font: italic 900 22px var(--fu-font); text-transform: uppercase; border-bottom: 1px solid rgba(255,255,255,.07); position: sticky; top: 0; background: rgba(16,20,29,.98); z-index: 1; }
+  .nt-hd #ntCount:not(:empty) { font: 800 13px var(--fu-font); font-style: normal; background: var(--fu-or); padding: 1px 7px; } .nt-hd .x { margin-left: auto; border: 0; background: none; color: rgba(255,255,255,.6); font-size: 18px; cursor: pointer; }
+  .nt-sec { padding: 10px 16px 4px; font: 800 12px var(--fu-font); letter-spacing: .14em; text-transform: uppercase; color: rgba(255,255,255,.5); }
+  .nt-it { display: grid; grid-template-columns: 44px 1fr; gap: 10px; padding: 10px 16px; align-items: center; animation: rlIn .3s both; } .nt-it + .nt-it { border-top: 1px solid rgba(255,255,255,.05); }
+  .nt-av { width: 44px; height: 44px; object-fit: cover; display: grid; place-items: center; background: #2a3142; font: 800 20px var(--fu-font); grid-row: span 2; }
+  .nt-tx b { font: 800 17px var(--fu-font); text-transform: uppercase; } .nt-tx span { font: 500 15px var(--fu-font); color: rgba(255,255,255,.8); margin-left: 5px; } .nt-tx small { display: block; font: 700 13px var(--fu-font); color: var(--fu-or); text-transform: uppercase; letter-spacing: .04em; }
+  .nt-ac { grid-column: 2; display: flex; gap: 6px; } .nt-ac button { border: 0; font: 700 15px var(--fu-font); text-transform: uppercase; padding: 6px 14px; cursor: pointer; }
+  .nt-yes { background: #fff; color: #0b0e14; } .nt-yes:hover { background: #22c55e; color: #fff; } .nt-no { background: rgba(255,255,255,.08); color: #fff; } .nt-no:hover { background: rgba(255,255,255,.18); }
+  .nt-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 26px 20px 30px; text-align: center; color: rgba(255,255,255,.65); font: 500 15px var(--fu-font); }
+  .nt-empty i { font-style: normal; font-size: 34px; opacity: .6; } .nt-empty b { font: italic 900 22px var(--fu-font); text-transform: uppercase; color: #fff; }`;
+  document.head.appendChild(st);
+  const x = h('button', { class: 'x', 'aria-label': 'Fechar', text: '✕' }); x.onclick = () => toggleNotif(false);
+  document.body.append(h('div', { id: 'ntPanel', class: 'hidden', role: 'dialog', 'aria-label': 'Notificações' }, h('div', { class: 'nt-hd' }, '🔔 Notificações', h('span', { id: 'ntCount' }), x), h('div', { id: 'ntList' })));
+  document.addEventListener('pointerdown', e => { if (NOTIF.open && !e.target.closest('#ntPanel, #fuNt')) toggleNotif(false); });
+  window.addEventListener('keydown', e => { if (e.key === 'Escape' && NOTIF.open) { e.stopImmediatePropagation(); toggleNotif(false); } }, true);
+  window.__ntReady = true;
+  setInterval(() => { renderNotifBadge(); if (NOTIF.open) renderNotif(); }, 5000);
+  renderNotifBadge();
+}
+
+/* =====================================================================
    RENDER
    ===================================================================== */
 const _q = new THREE.Quaternion(), _ax = new THREE.Vector3();
@@ -6331,10 +6417,11 @@ initSpecUI();
 initFriendsUI();
 initMatchUI();
 initVictoryUI();
+initNotifUI();
 initMenuShell();
 initGate();
 initUiFx();
 const verParam = new URLSearchParams(location.search).get('ver');
 if (roomParam) gateAfter(() => { if (S.phase === 'lobby') joinRoom(roomParam); });
 if (verParam && !roomParam) { $('inCode').value = verParam.toUpperCase(); gateAfter(() => { if (S.phase === 'lobby') joinSpectate(verParam); }); }
-window.__pp = { RPl: () => RP.last, startVictory, finishVictory, showWin, VIC, SLOW, slowAudio, founderBadge, MATCH, VS, INV, launchMatch, acceptInvite, showVs, hideVs, get oppAvatar() { return oppAvatar; }, get oppSkin() { return oppSkin; }, RSKINS, GATE, gateSync, UI, showPage, futGo, futTab, renderFut, AVATARS, avatarURI, setAvatar, menuMusic, updateMenuMusic, FR, loadFriends, openFriends, socialPoll, showInvite, SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+window.__pp = { NOTIF, toggleNotif, addInviteNotif, RPl: () => RP.last, startVictory, finishVictory, showWin, VIC, SLOW, slowAudio, founderBadge, MATCH, VS, INV, launchMatch, acceptInvite, showVs, hideVs, get oppAvatar() { return oppAvatar; }, get oppSkin() { return oppSkin; }, RSKINS, GATE, gateSync, UI, showPage, futGo, futTab, renderFut, AVATARS, avatarURI, setAvatar, menuMusic, updateMenuMusic, FR, loadFriends, openFriends, socialPoll, showInvite, SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
