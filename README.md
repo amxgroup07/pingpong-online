@@ -60,6 +60,17 @@ Todos os botões e cartões reagem ao hover e ao clique (subida leve, brilho, "o
 - Fundo: a arte do jogo (`assets/menu-bg.jpg`; no celular, a versão menor) com zoom lento. Enquanto o menu está na tela, o 3D não é desenhado.
 - **Música do menu:** `assets/menu-music.mp3`, em loop e baixa, só depois do login; mais baixa na tela de resultado e some na partida (a menos que "música durante a partida" esteja ligada). Segue o volume de **Música** e o 🔇. Os arquivos vêm do jsDelivr fixados no commit (`ASSET_SHA` no `game.js`).
 
+## Partida em etapas (estilo FIFA) e convite pelo jogo
+
+1. **Tipo de partida** (aba Jogar): Treino, Amigo, Ranqueada ou Tutorial.
+2. **Amigo:** lista dos amigos do jogo (online primeiro, com status e elo) e o cartão "Adicionar amigo" com o seu código e um campo para o código do amigo. Amigo jogando → opção de assistir.
+3. **Cenário:** um cartão por arena.
+4. **Modo de jogo:** Duelo, MD3 ou MD5 (no treino, aqui também se escolhe o nível da CPU).
+5. **Raquete e skin:** raquetes no topo, skins embaixo e o botão laranja para confirmar.
+6. **Tela VS (5 s):** por cima da arena escolhida (a câmera passeia até a posição de jogo): avatar, nick, sigla/nível, raquete com a skin de cada lado, arena, formato e tipo; contagem e a partida começa.
+
+Ranqueada pula cenário e modo (é sempre 1 game). **Convite:** ao confirmar, o jogo abre a sala e manda o convite (`invite_friend` com sala, arena e formato) e mostra "Esperando NOME aceitar" com Cancelar (`invite_cancel`; expira em 90 s). O amigo recebe um aviso com avatar, arena e formato; **Aceitar** leva direto para a escolha de raquete/skin e depois entra na partida. Não existe mais link de sala no menu (links antigos `?sala=` ainda funcionam). O `hello` da rede leva também o avatar (`av`, só avatares do jogo ou da Steam).
+
 ## Skins de raquete (25)
 Cada raquete (Clássica, Víbora, Foguete, Muralha, Raiz e Dragão Dourado) pode usar qualquer uma das 25 skins; a skin muda só o visual (frente e verso da borracha), não a velocidade, o efeito nem o controle. Na **Coleção**, clique numa raquete para equipá-la e abrir as skins dela; "Original" volta ao visual padrão. A escolha fica salva por raquete (`pp_rskins`) e vai para o adversário e para quem assiste (campo `sk` no `hello` e no `sinit`). A sigla aparece pequena embaixo da arte.
 
