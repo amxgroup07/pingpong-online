@@ -71,7 +71,7 @@ Todos os botões e cartões reagem ao hover e ao clique (subida leve, brilho, "o
 
 1. **Tipo de partida** (aba Jogar): Treino, Amigo, Ranqueada ou Tutorial.
 2. **Amigo:** lista dos amigos do jogo (online primeiro, com status e elo) e o cartão "Adicionar amigo" com o seu código e um campo para o código do amigo. Amigo jogando → opção de assistir.
-3. **Cenário:** um cartão por arena.
+3. **Cenário:** um cartão por arena, com um print de verdade da arena (`assets/arenas/<id>.jpg`, renderizado no próprio jogo; para atualizar, gere de novo e troque `ARENA_SHA`).
 4. **Modo de jogo:** Duelo, MD3 ou MD5 (no treino, aqui também se escolhe o nível da CPU).
 5. **Raquete e skin:** raquetes no topo, skins embaixo e o botão laranja para confirmar.
 6. **Tela VS (5 s):** por cima da arena escolhida (a câmera passeia até a posição de jogo): avatar, nick, sigla/nível, raquete com a skin de cada lado, arena, formato e tipo; contagem e a partida começa.

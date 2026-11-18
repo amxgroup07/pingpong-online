@@ -5174,7 +5174,7 @@ function futTile(t, i) {
     art.append(h('div', { class: 'fu-code' }, h('small', { text: 'CÓDIGO DA SALA' }), inp, go));
   } else if (typeof t.art === 'string') art.innerHTML = t.art;
   else if (t.art) art.append(t.art);
-  art.insertAdjacentHTML('afterbegin', uniq(SWOOSH));        // a faixa laranja fica atrás da ilustração
+  if (!t.noSwoosh) art.insertAdjacentHTML('afterbegin', uniq(SWOOSH));        // a faixa laranja fica atrás da ilustração
   if (t.art !== 'addfriend') art.append(h('div', { class: 'fu-tt', text: t.title }));
   if (t.badge) art.append(h('span', { class: 'fu-badge' + (t.badgeCls ? ' ' + t.badgeCls : ''), text: t.badge }));
   if (t.skin) art.append(h('span', { class: 'fu-skn', text: '🎨 ' + t.skin }));
@@ -5763,6 +5763,13 @@ const ARENA_ART = {
   final: `<rect width="300" height="240" fill="#080b16"/>${[...Array(5)].map((_, i) => `<path d="M${30 + i * 60} 0 L${i * 60 - 10} 240 L${i * 60 + 70} 240Z" fill="#fff" opacity=".06"/>`).join('')}<path d="M0 150 Q150 90 300 150 V240 H0Z" fill="#141a2e"/>${[...Array(120)].map((_, i) => `<circle cx="${(i * 41) % 300}" cy="${118 + (i * 13) % 40 + Math.abs(150 - (i * 41) % 300) * .12}" r="1.6" fill="${['#ff3d5a', '#3d8bff', '#ffd34d', '#fff'][i % 4]}" opacity=".7"/>`).join('')}${[...Array(30)].map((_, i) => `<rect x="${(i * 53) % 300}" y="${(i * 29) % 110}" width="4" height="7" fill="${['#ffd34d', '#ff3d8b', '#3dc8ff'][i % 3]}" transform="rotate(${i * 37} ${(i * 53) % 300} ${(i * 29) % 110})"/>`).join('')}`,
 };
 const TABLE_SVG = `<g transform="translate(150 196)"><path d="M-70 -14 L70 -14 L84 10 L-84 10Z" fill="#1f4fd0" stroke="#fff" stroke-width="1.5"/><path d="M0 -14 V10" stroke="#fff" stroke-width="1"/><path d="M-74 -22 L74 -22" stroke="rgba(255,255,255,.75)" stroke-width="2"/><rect x="-70" y="10" width="4" height="22" fill="#111"/><rect x="66" y="10" width="4" height="22" fill="#111"/></g>`;
+const ARENA_SHA = '7d5e2fe91cdeade930a2230a8024ca5263880bbf';
+function arenaShot(id) {                                   // print de verdade da arena (renderizada no próprio jogo)
+  const d = h('div', { class: 'fu-ashot' });
+  const im = h('img', { src: `https://cdn.jsdelivr.net/gh/amxgroup07/pingpong-online@${ARENA_SHA}/assets/arenas/${id}.jpg`, alt: '', loading: 'lazy' });
+  im.onerror = () => { if (!im.dataset.f) { im.dataset.f = 1; im.src = `https://raw.githubusercontent.com/amxgroup07/pingpong-online/${ARENA_SHA}/assets/arenas/${id}.jpg`; } else im.replaceWith(h('div', { class: 'fu-ashot-svg', html: '' })); };
+  d.append(im); return d;
+}
 function arenaArt(id) { return uniq(`<svg class="fu-svg" viewBox="0 0 300 240" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${(ARENA_ART[id] || '').replace(/id="sky"/, 'id="gl"').replace(/url\(#sky\)/, 'url(#gl)')}${TABLE_SVG}</svg>`); }
 function modeArt(n) {
   return uniq(`<svg class="fu-svg" viewBox="0 0 300 240" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><radialGradient id="gl"><stop offset="0" stop-color="#ff6b1a" stop-opacity=".45"/><stop offset="1" stop-color="#ff6b1a" stop-opacity="0"/></radialGradient></defs><circle cx="150" cy="105" r="95" fill="url(#gl)"/><text x="150" y="128" text-anchor="middle" font-size="130" font-style="italic" font-weight="900" fill="#fff" font-family="Barlow Condensed,system-ui">${n}</text><text x="150" y="154" text-anchor="middle" font-size="22" font-weight="800" fill="rgba(255,255,255,.7)" letter-spacing="4" font-family="Barlow Condensed,system-ui">${n === 1 ? 'GAME' : 'GAMES'}</text>${[...Array(n)].map((_, i) => `<circle cx="${150 - (n - 1) * 11 + i * 22}" cy="174" r="7" fill="${i < Math.ceil(n / 2) ? '#ff6b1a' : 'rgba(255,255,255,.25)'}"/>`).join('')}</svg>`);
@@ -5794,7 +5801,7 @@ function matchPages(id) {
     case 'arena': {
       const steps = MATCH.type === 'solo' ? 3 : 3;
       return { title: 'Cenário', crumb: MATCH.type === 'friend' ? 'Amigos' : 'Jogar', sub: MATCH.type === 'friend' ? `Onde vai ser a partida contra ${MATCH.friend.name}?` : 'Escolha onde vai ser a partida.', chips: stepChips(1, steps),
-        tiles: ARENAS.map((a, i) => ({ title: a.name, art: arenaArt(a.id), foot: [['Hora', ARENA_INFO[a.id][0]], ['Público', ARENA_INFO[a.id][1]], ['Som', ARENA_INFO[a.id][2]]], small: true, sel: pickState.ar === i,
+        tiles: ARENAS.map((a, i) => ({ title: a.name, art: arenaShot(a.id), noSwoosh: true, foot: [['Hora', ARENA_INFO[a.id][0]], ['Público', ARENA_INFO[a.id][1]], ['Som', ARENA_INFO[a.id][2]]], sel: pickState.ar === i,
           go: () => { pickState.ar = i; store.set('pp_arena', a.id); if (A.id !== a.id) buildArena(a.id); renderPick(); futGo('mode'); } })) };
     }
     case 'mode': return { title: 'Modo de jogo', crumb: 'Cenário', sub: `${ARENAS[pickState.ar].emoji} ${ARENAS[pickState.ar].name}. Quantos games vai ter a partida?`, chips: stepChips(2, 3), pre: MATCH.type === 'solo' ? 'cpu' : null,
@@ -5933,6 +5940,9 @@ function hideVs() {
 function initMatchUI() {
   const st = document.createElement('style');
   st.textContent = `
+  .fu-ashot { position: absolute; inset: 0; background: #10141d; } .fu-ashot img { width: 100%; height: 100%; object-fit: cover; transition: transform .5s cubic-bezier(.2,.9,.3,1), filter .3s; filter: saturate(1.05); }
+  .fu-ashot::after { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(5,7,12,.85), transparent 45%); }
+  .fu-tile.sel .fu-ashot img { transform: scale(1.07); filter: saturate(1.2) brightness(1.08); }
   .fu-fav { position: absolute; inset: 0; background: radial-gradient(circle at 50% 45%, rgba(61,130,255,.25), transparent 62%); }
   .fu-fav.on { background: radial-gradient(circle at 50% 45%, rgba(34,197,94,.3), transparent 62%); }
   .fu-tile.dim .fu-art > *:not(.fu-tt) { filter: grayscale(.85) brightness(.55); }
