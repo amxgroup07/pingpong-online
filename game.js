@@ -30,9 +30,10 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const $ = id => document.getElementById(id);
 const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { } } };
 // configurações do jogador (salvas no aparelho)
-const CFG_DEF = { sensMove: 1, sensSwing: 1, vMaster: 90, vCrowd: 80, vMusic: 45, vFx: 100, vUi: 70, shake: true, replays: true, showPing: true, lockMouse: true, ballGlow: false, musicInGame: false, asmr: true, assist: false };
+const CFG_DEF = { sensMove: 1, sensSwing: 1, vMaster: 90, vCrowd: 80, vMusic: 40, vFx: 100, vUi: 70, shake: true, replays: true, showPing: true, lockMouse: true, ballGlow: false, musicInGame: false, asmr: true, assist: false };
 const cfg = Object.assign({}, CFG_DEF, (() => { try { return JSON.parse(store.get('pp_cfg', '{}')) || {}; } catch (e) { return {}; } })());
 const saveCfg = () => store.set('pp_cfg', JSON.stringify(cfg));
+if (!cfg._v2) { if (cfg.vMusic === 45) cfg.vMusic = 40; cfg._v2 = 1; saveCfg(); }   // música padrão passou de 45% para 40%
 const volGain = v => v <= 0 ? 0 : Math.pow(clamp(v, 0, 100) / 100, 1.4);
 
 /* =====================================================================
@@ -5268,6 +5269,10 @@ function initMenuShell() {
   .fu-timer { display: flex; align-items: center; gap: 6px; color: #ff9a3c; font-weight: 700; } .fu-mbar { width: 120px; height: 6px; background: rgba(255,255,255,.12); position: relative; } .fu-mbar i { position: absolute; inset: 0 auto 0 0; background: var(--fu-bl); }
   .fu-lvl { min-width: 26px; height: 26px; display: grid; place-items: center; background: #fff; color: #0b0e14; font-weight: 800; font-size: 15px; padding: 0 6px; }
   .fu-ib { position: relative; width: 34px; height: 30px; border: 0; background: rgba(255,255,255,.07); color: #fff; font-size: 16px; cursor: pointer; } .fu-ib:hover { background: rgba(255,255,255,.18); }
+  .fu-ib.fu-frb { width: auto; height: 32px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px 0 10px; background: linear-gradient(180deg, #2fd16b, #16a34a); color: #fff; font: 800 15px var(--fu-font); letter-spacing: .06em; box-shadow: 0 0 0 1px rgba(255,255,255,.15) inset, 0 4px 16px rgba(34,197,94,.45); animation: frGlow 2.6s ease-in-out infinite; }
+  .fu-ib.fu-frb i { font-style: normal; font-size: 16px; } .fu-ib.fu-frb:hover { background: linear-gradient(180deg, #4ade80, #22c55e); box-shadow: 0 0 0 1px rgba(255,255,255,.3) inset, 0 6px 22px rgba(34,197,94,.7); transform: translateY(-1px); }
+  @keyframes frGlow { 50% { box-shadow: 0 0 0 1px rgba(255,255,255,.15) inset, 0 4px 24px rgba(34,197,94,.75); } }
+  @media (max-width: 760px) { .fu-ib.fu-frb .lb { display: none; } .fu-ib.fu-frb { padding: 0 10px; } }
   .fu-ib .bd { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; border-radius: 8px; background: #e8273f; font: 800 11px var(--fu-font); display: grid; place-items: center; padding: 0 3px; } .fu-ib .bd.hidden { display: none; }
   /* abas */
   .fu-tabs { position: absolute; top: 44px; left: 0; right: 0; height: 46px; display: flex; align-items: center; gap: 4px; padding: 0 22px; z-index: 3; }
@@ -5417,7 +5422,7 @@ function initMenuShell() {
   // o que existia no menu vai para um depósito escondido (os ids e eventos continuam valendo)
   const hold = h('div', { id: 'fuHold' }); hold.append(...menu.children); card.append(hold);
   const ic = (txt, title, fn, id) => { const b = h('button', { class: 'fu-ib', title, 'aria-label': title, id }, txt); b.onclick = fn; return b; };
-  const frB = ic('👥', 'Amigos', () => openFriends(), 'fuFr'); frB.append(h('span', { class: 'bd hidden', id: 'fuFrBadge' }));
+  const frB = ic('', 'Amigos', () => openFriends(), 'fuFr'); frB.classList.add('fu-frb'); frB.append(h('i', { text: '👥' }), h('span', { class: 'lb', text: 'AMIGOS' }), h('span', { class: 'bd hidden', id: 'fuFrBadge' }));
   const club = h('div', { class: 'fu-club', title: 'Perfil' }, h('div', { class: 'fu-crest', id: 'fuCrest' }), h('b', { id: 'fuName' }), h('span', { id: 'fuFdr' }), h('span', { class: 'fu-key', id: 'fuEst' }));
   club.onclick = () => { UI.stack = []; showPage('profile'); };
   const top = h('div', { class: 'fu-top' }, club, h('i', { class: 'fu-sep' }),
