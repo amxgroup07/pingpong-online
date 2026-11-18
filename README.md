@@ -31,6 +31,20 @@ npx vercel        # primeira vez: faz login e cria o projeto
 npx vercel --prod # publica em produção
 ```
 
+## Tela de entrada (login)
+
+Antes do menu aparece a tela de entrada, com o mesmo fundo do menu:
+- **Entrar com a Steam** (botão oficial; abre a página da própria Steam, o jogo nunca vê a senha).
+- **Email e senha:** abas *Entrar* / *Criar conta* (nome no jogo, email e senha de 8+ caracteres com letras e números), "Esqueci minha senha" (manda um link; ao voltar com `?reset=1` o jogo pede a senha nova) e reenvio do email de confirmação.
+- Mensagens de erro em português (senha errada, email já cadastrado, email não confirmado, muitas tentativas).
+- Quem já está logado passa direto (só aparece "Conectando…" por um instante). "Sair" volta para a tela de entrada.
+- Links de sala (`?sala=`) e de assistir (`?ver=`) esperam o login e entram sozinhos depois.
+- Se o servidor de contas estiver fora do ar: "Tentar de novo" ou "Treinar offline".
+- **Supabase (painel):** em *Authentication → URL Configuration*, o *Site URL* deve ser `https://pingpong-online.vercel.app` (e ela na lista de *Redirect URLs*). O envio de email padrão do Supabase só manda para membros da equipe e tem limite baixo por hora: para jogadores reais, configure um SMTP próprio (*Authentication → Emails → SMTP*, ex.: Resend) ou desligue *Confirm email* em *Sign In / Providers → Email*.
+
+## Efeitos de botão
+Todos os botões sobem de leve e ganham um brilho que passa no hover, encolhem um pouco no clique e soltam uma "onda" de luz a partir do ponto clicado. Os botões do menu lateral piscam e o texto "respira" no clique. Sons baixinhos de hover e clique seguem o volume de **Avisos** (UI). Quem usa "reduzir movimento" no sistema fica sem as animações de brilho.
+
 ## Menu principal (estilo Rocket League)
 
 - Fundo com a arte do jogo (`assets/menu-bg.jpg`; no celular, a versão menor), com zoom lento, um brilho que passa de vez em quando e faíscas subindo.

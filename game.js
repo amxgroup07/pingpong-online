@@ -2847,6 +2847,7 @@ function perfMonitor(rawDt) {
    ===================================================================== */
 function startGame(mode, side, format = 1) {
   S.mode = mode; S.mySide = side; S.format = [1, 3, 5].includes(format) ? format : 1;
+  setTimeout(() => window.__gateSync && window.__gateSync(), 0);
   me.z = side * (HL + 0.4); me.prevDepth = HL + 0.4;
   opp.x = opp.tx = 0; opp.z = opp.tz = -side * (HL + 0.4);
   bot.x = 0; bot.z = -side * (HL + 0.35);
@@ -2892,7 +2893,7 @@ function goMenu() {
   stopRhythm(); qc.mode = 'closed'; qcRender(); $('chatFeed').innerHTML = '';
   if (wasOnline || wasSpec) cleanupNet();
   $('hud').classList.add('hidden'); $('over').classList.add('hidden');
-  $('lobby').classList.remove('hidden'); showPanel('menu'); lobbyMsg('');
+  $('lobby').classList.remove('hidden'); showPanel('menu'); lobbyMsg(''); window.__gateSync && window.__gateSync();
   if (typeof renderPick === 'function') renderPick();
   updateHud();
 }
@@ -3104,7 +3105,7 @@ async function initAccount() {
   initAccountUI();
   // quais logins estão ligados no Supabase (o Google precisa ser configurado no painel)
   fetch(SB_URL + '/auth/v1/settings', { headers: { apikey: SB_KEY } }).then(r => r.json()).then(j => { acct.providers.google = !!(j.external && j.external.google); renderAccount(); }).catch(() => { });
-  const sb = await sbLoad(); if (!sb) { renderAccount('Servidor de contas indisponível agora.'); return; }
+  const sb = await sbLoad(); if (!sb) { acct.failed = true; window.__gateSync && window.__gateSync(); renderAccount('Servidor de contas indisponível agora.'); return; }
   loadRacketCfg();
   // volta do login com Steam: o token de uso único vem depois do #
   const h = new URLSearchParams(location.hash.slice(1));
@@ -3119,10 +3120,12 @@ async function initAccount() {
   if (/[?&]code=/.test(location.search)) setTimeout(() => history.replaceState(null, '', location.pathname), 1500);
   sb.auth.onAuthStateChange((ev, session) => {
     const u = session ? session.user : null;
-    if ((u && u.id) !== (acct.user && acct.user.id)) { acct.user = u; refreshProfile(); }
+    if ((u && u.id) !== (acct.user && acct.user.id)) { acct.user = u; refreshProfile(); window.__gateSync && window.__gateSync(); }
   });
-  const { data } = await sb.auth.getSession();
-  acct.user = data.session ? data.session.user : null;
+  let data = { session: null };
+  try { data = (await sb.auth.getSession()).data || data; } catch (e) { console.warn('sessão', e); }
+  acct.user = data.session ? data.session.user : null; acct.checked = true;
+  window.__gateSync && window.__gateSync();
   refreshProfile();
 }
 function loginSteam() {
@@ -3133,7 +3136,7 @@ async function loginGoogle() {
   const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });
   if (error) lobbyMsg('Login com Google indisponível: ' + error.message);
 }
-async function logout() { const sb = await sbLoad(); if (sb) await sb.auth.signOut(); acct.user = null; acct.profile = null; FR.data = null; FR.incoming = 0; renderFrBadge(); renderAccount(); refreshNames(); afterProfile(); }
+async function logout() { const sb = await sbLoad(); if (sb) await sb.auth.signOut(); acct.user = null; acct.profile = null; FR.data = null; FR.incoming = 0; renderFrBadge(); renderAccount(); refreshNames(); afterProfile(); window.__gateSync && window.__gateSync(); }
 async function editName() {
   const nm = prompt('Seu nome no jogo (3 a 20 caracteres):', acct.profile ? acct.profile.name : '');
   if (nm === null) return;
@@ -4973,16 +4976,15 @@ function initMenuShell() {
   const prof = h('div', { class: 'rl-prof', title: acct.user ? 'Perfil e sigla' : 'Entrar' },
     h('div', { class: 'rl-av', id: 'rlAv' }), h('div', { class: 'rl-pi' }, h('b', { id: 'rlName' }), h('small', { id: 'rlSub' }),
       h('div', { class: 'rl-lvl' }, h('i', {}, 'NÍV ', h('span', { id: 'rlLvl' })), h('div', { class: 'rl-xp' }, h('div', { id: 'rlXpBar' })))));
-  prof.onclick = () => { uiTick('click'); if (acct.user) openSettings('perfil'); else showPage('home'); };
-  const ib = (txt, title, fn, id) => { const b = h('button', { class: 'rl-ib', title, 'aria-label': title, id }, txt); b.onclick = () => { uiTick('click'); fn(); }; b.onmouseenter = () => uiTick('hover'); return b; };
+  prof.onclick = () => { if (acct.user) openSettings('perfil'); else showPage('home'); };
+  const ib = (txt, title, fn, id) => { const b = h('button', { class: 'rl-ib', title, 'aria-label': title, id }, txt); b.onclick = () => fn(); return b; };
   const frB = ib('👥', 'Amigos', () => openFriends(), 'rlFr'); frB.append(h('span', { class: 'bd hidden', id: 'rlFrBadge' }));
   const top = h('div', { class: 'rl-top' }, h('div', { class: 'rl-logo' }, 'PING PONG', h('span', { text: 'ONLINE' })), h('div', { class: 'rl-crumb', id: 'rlCrumb', text: 'INÍCIO' }), h('div', { class: 'rl-sp' }),
     prof, frB, ib('🏆', 'Ranking', () => openRanking()), ib('⚙️', 'Configurações', () => openSettings()));
   // navegação
   const nb = (p, label, sub, fn, cls = '') => {
     const b = h('button', { class: cls, 'data-p': p || '' }, h('span', {}, label, sub ? h('em', { text: sub }) : null));
-    b.onmouseenter = () => uiTick('hover');
-    b.onclick = () => { uiTick('click'); ensureAudio(); fn ? fn() : showPage(p); };
+    b.onclick = () => { ensureAudio(); fn ? fn() : showPage(p); };
     return b;
   };
   const nav = h('div', { class: 'rl-nav' },
@@ -5009,7 +5011,7 @@ function initMenuShell() {
 
   const pHome = h('div', { class: 'rl-page in', id: 'pg-home' });
   const acctCard = $('acctCard'), progCard = $('progCard');
-  const goPlay = h('button', { class: 'btn', text: '▶  JOGAR AGORA' }); goPlay.onclick = () => { uiTick('click'); showPage('play'); };
+  const goPlay = h('button', { class: 'btn', text: '▶  JOGAR AGORA' }); goPlay.onclick = () => showPage('play');
   pHome.append(h('div', { class: 'rl-grid2' },
     pnl(h('div', { class: 'rl-h' }, '👤 Sua conta'), acctCard),
     pnl(h('div', { class: 'rl-h' }, '🎯 Progresso', h('small', { text: 'MISSÕES DE HOJE' })), progCard, goPlay)));
@@ -5039,13 +5041,11 @@ function initMenuShell() {
   menu.querySelector('.rl-nav button[data-p="home"]').classList.add('on');
   // os cliques continuam funcionando nos seletores que mudaram de lugar
   for (const d of [pPlay, pGarage]) d.addEventListener('click', e => {
-    const b = e.target.closest('.pk-arrow'); if (b) { uiTick('click'); pickMove(b.dataset.k, +b.dataset.d); }
+    const b = e.target.closest('.pk-arrow'); if (b) pickMove(b.dataset.k, +b.dataset.d);
     const f = e.target.closest('#fmtSeg button'); if (f) { pickState.fmt = +f.dataset.f; store.set('pp_fmt', String(pickState.fmt)); renderPick(); }
     const bs = e.target.closest('#bsList .bs');
     if (bs) { const sk = ballSkinById(bs.dataset.b); if (skinLocked(sk)) toast(`🔒 A bolinha ${sk.name} libera no nível ${SKIN_LV[sk.id]}`); else { applyBallSkin(sk); renderPick(); } }
-    if (e.target.closest('button')) uiTick('click');
   });
-  card.addEventListener('mouseover', e => { if (e.target.closest('.rl-panel .btn, .pk-arrow, .seg button')) uiTick('hover'); });
   window.addEventListener('keydown', e => {
     if (e.key !== 'Escape' || $('lobby').classList.contains('hidden')) return;
     if (!$('cfgScreen').classList.contains('hidden') || !$('frScreen').classList.contains('hidden')) return;
@@ -5055,6 +5055,287 @@ function initMenuShell() {
   setInterval(() => { if (!$('lobby').classList.contains('hidden')) renderTopProfile(); }, 3000);
 }
 
+
+/* =====================================================================
+   TELA DE ENTRADA (antes do menu): Steam ou email
+   Aparece por cima de tudo enquanto não houver conta logada.
+   ===================================================================== */
+const GATE = { view: 'check', tab: 'login', busy: false, email: '', after: [], shown: false, passed: false };
+function gateAfter(fn) { if (acct.user || acct.failed) fn(); else GATE.after.push(fn); }
+const AUTH_ERR = [
+  [/invalid login credentials/i, 'Email ou senha incorretos.'],
+  [/email not confirmed/i, 'Falta confirmar o email. Abra o link que mandamos (veja também o spam).'],
+  [/already registered|already been registered|user already exists/i, 'Esse email já tem conta. Entre com a senha.'],
+  [/password should be at least|weak.?password|password is too weak/i, 'Senha fraca: use pelo menos 8 caracteres, misturando letras e números.'],
+  [/rate limit|too many|security purposes/i, 'Muitas tentativas agora. Espere um minuto e tente de novo.'],
+  [/invalid.*email|unable to validate email/i, 'Esse email não parece válido.'],
+  [/signups not allowed|signup.*disabled/i, 'Cadastro por email desligado no momento. Use a Steam.'],
+  [/network|fetch|failed to/i, 'Sem conexão com o servidor. Confira a internet.'],
+];
+const authMsg = e => { const m = (e && e.message) || String(e || ''); const f = AUTH_ERR.find(([r]) => r.test(m)); return f ? f[1] : 'Não deu certo: ' + m.slice(0, 90); };
+
+function gateSync() {
+  const g = $('authGate'); if (!g) return;
+  if (new URLSearchParams(location.search).get('reset') === '1' && acct.user && !GATE.passed) GATE.view = 'reset';
+  const inGame = S.phase !== 'lobby';                    // partida começou (link de sala, testes): a tela sai da frente
+  const need = !inGame && (GATE.view === 'reset' || (!acct.user && !acct.failed) || (acct.failed && !GATE.offline));
+  if (acct.user && GATE.view !== 'reset') {
+    GATE.view = 'in';
+    if (GATE.after.length) setTimeout(() => GATE.after.splice(0).forEach(f => { try { f(); } catch (e) { console.warn(e); } }), 0);
+  } else if (!acct.user && GATE.view === 'in') GATE.view = 'form';
+  else if (acct.failed && GATE.view === 'check') GATE.view = 'error';
+  else if (!acct.user && acct.checked && GATE.view === 'check') GATE.view = 'form';
+  if (need && !GATE.shown) { g.classList.remove('hidden', 'leave'); GATE.shown = true; }
+  else if (!need && GATE.shown) {
+    GATE.shown = false; g.classList.add('leave');
+    setTimeout(() => { if (!GATE.shown) g.classList.add('hidden'); }, 650);
+    if (!inGame) menuEnterFx();
+  }
+  if (!acct.user) GATE.passed = false;
+  if (acct.failed && GATE.offline && GATE.after.length) GATE.after.splice(0).forEach(f => f());
+  renderGate();
+}
+function menuEnterFx() {                                   // os botões do menu entram de novo, em cascata
+  document.querySelectorAll('.rl-nav button, .rl-top > *, .rl-page.in .rl-panel').forEach((el, i) => {
+    el.style.animation = 'none'; void el.offsetWidth;
+    el.style.animation = `rlIn .55s cubic-bezier(.2,.9,.3,1) ${0.25 + i * 0.045}s both`;
+  });
+}
+function renderGate() {
+  const body = $('agBody'); if (!body) return;
+  const v = GATE.view; body.textContent = ''; GATE.busy = false;
+  body.dataset.v = v;
+  const field = (type, name, label, auto, extra = {}) => {
+    const i = h('input', { type, name, id: 'ag_' + name, autocomplete: auto, required: true, spellcheck: 'false', ...extra });
+    return h('label', { class: 'ag-f' }, h('span', { text: label }), i);
+  };
+  const err = h('div', { class: 'ag-err', id: 'agErr', role: 'alert' });
+  const steamBtn = () => {
+    const b = h('button', { type: 'button', class: 'ag-steam', id: 'agSteam', 'aria-label': 'Entrar com a Steam' });
+    const im = h('img', { src: 'https://community.fastly.steamstatic.com/public/images/signinthroughsteam/sits_01.png', alt: 'Sign in through Steam', width: 180, height: 35 });
+    im.onerror = () => { b.textContent = 'Entrar com a Steam'; };
+    b.append(im, h('span', { text: 'Entrar com a Steam' }));
+    b.onclick = () => { b.classList.add('go'); loginSteam(); };
+    return b;
+  };
+  if (v === 'check' || v === 'in') {
+    body.append(h('div', { class: 'ag-wait' }, h('span', { class: 'spinner' }), h('span', { text: v === 'in' ? 'Entrando…' : 'Conectando…' })));
+    return;
+  }
+  if (v === 'error') {
+    const r = h('button', { class: 'btn', type: 'button', text: 'Tentar de novo' }); r.onclick = () => location.reload();
+    const o = h('button', { class: 'btn ghost', type: 'button', text: 'Treinar offline (sem conta)' }); o.onclick = () => { GATE.offline = true; gateSync(); };
+    body.append(h('div', { class: 'ag-h', text: 'Servidor de contas fora do ar' }), h('p', { class: 'ag-p', text: 'Não conseguimos falar com o servidor agora. Você pode tentar de novo ou treinar contra a CPU enquanto isso (sem salvar progresso).' }), h('div', { class: 'ag-col' }, r, o));
+    return;
+  }
+  if (v === 'sent') {
+    const again = h('button', { class: 'btn ghost', type: 'button', text: 'Reenviar email' });
+    again.onclick = async () => {
+      again.disabled = true;
+      try { const sb = await sbLoad(); const { error } = GATE.sentKind === 'reset' ? await sb.auth.resetPasswordForEmail(GATE.email, { redirectTo: location.origin + location.pathname + '?reset=1' }) : await sb.auth.resend({ type: 'signup', email: GATE.email, options: { emailRedirectTo: location.origin + location.pathname } }); if (error) throw error; toast('Email reenviado'); }
+      catch (e) { $('agErr').textContent = authMsg(e); }
+      setTimeout(() => { again.disabled = false; }, 30000);
+    };
+    const back = h('button', { class: 'ag-link', type: 'button', text: '← Voltar para o login' }); back.onclick = () => { GATE.view = 'form'; GATE.tab = 'login'; renderGate(); };
+    body.append(h('div', { class: 'ag-mail', text: '✉️' }), h('div', { class: 'ag-h', text: 'Confira seu email' }),
+      h('p', { class: 'ag-p' }, GATE.sentKind === 'reset' ? 'Mandamos um link para criar uma senha nova em ' : 'Mandamos um link de confirmação para ', h('b', { text: GATE.email }), '. Abra o link neste aparelho para entrar. Não chegou? Olhe o spam.'),
+      err, h('div', { class: 'ag-col' }, again), back);
+    return;
+  }
+  if (v === 'reset') {
+    const f = h('form', { class: 'ag-form', novalidate: true });
+    f.append(h('div', { class: 'ag-h', text: 'Crie uma senha nova' }), field('password', 'pw', 'Nova senha', 'new-password', { minlength: 8 }), err, h('button', { class: 'btn ag-go', type: 'submit', text: 'Salvar e entrar' }));
+    f.onsubmit = async e => {
+      e.preventDefault(); const pw = f.pw.value;
+      if (pw.length < 8) { err.textContent = 'A senha precisa ter pelo menos 8 caracteres.'; return; }
+      gateBusy(f, true);
+      try { const sb = await sbLoad(); const { error } = await sb.auth.updateUser({ password: pw }); if (error) throw error;
+        history.replaceState(null, '', location.pathname); GATE.view = 'in'; GATE.passed = true; toast('Senha nova salva ✔'); gateSync(); }
+      catch (x) { err.textContent = authMsg(x); gateBusy(f, false); }
+    };
+    body.append(f); setTimeout(() => f.pw.focus(), 50);
+    return;
+  }
+  // formulário principal: Steam em cima, email embaixo
+  const tabs = h('div', { class: 'ag-tabs', role: 'tablist' });
+  for (const [k, t] of [['login', 'Entrar'], ['signup', 'Criar conta']]) {
+    const b = h('button', { type: 'button', role: 'tab', class: GATE.tab === k ? 'on' : '', 'aria-selected': String(GATE.tab === k), text: t });
+    b.onclick = () => { if (GATE.tab !== k) { GATE.tab = k; renderGate(); } };
+    tabs.append(b);
+  }
+  tabs.append(h('i', { class: 'ag-ind', style: `transform: translateX(${GATE.tab === 'login' ? 0 : 100}%)` }));
+  const su = GATE.tab === 'signup', fg = GATE.tab === 'forgot';
+  const f = h('form', { class: 'ag-form', novalidate: true });
+  if (fg) {
+    f.append(h('div', { class: 'ag-h', text: 'Esqueci a senha' }), h('p', { class: 'ag-p', text: 'Digite o email da conta. Vamos mandar um link para criar uma senha nova.' }),
+      field('email', 'email', 'Email', 'email', { value: GATE.email }), err, h('button', { class: 'btn ag-go', type: 'submit', text: 'Mandar link' }));
+    const back = h('button', { class: 'ag-link', type: 'button', text: '← Voltar' }); back.onclick = () => { GATE.tab = 'login'; renderGate(); };
+    f.append(back);
+  } else {
+    if (su) f.append(field('text', 'name', 'Nome no jogo', 'nickname', { minlength: 3, maxlength: 20 }));
+    f.append(field('email', 'email', 'Email', 'email', { value: GATE.email }));
+    const pw = field('password', 'pw', su ? 'Senha (mín. 8 caracteres)' : 'Senha', su ? 'new-password' : 'current-password', { minlength: su ? 8 : 1 });
+    const eye = h('button', { type: 'button', class: 'ag-eye', 'aria-label': 'Mostrar senha', text: '👁' });
+    eye.onclick = () => { const i = pw.querySelector('input'); i.type = i.type === 'password' ? 'text' : 'password'; eye.classList.toggle('on'); };
+    pw.append(eye); f.append(pw, err);
+    if (su) f.append(h('p', { class: 'ag-terms', text: 'Ao criar a conta você aceita que guardemos seu nome, email e estatísticas do jogo para o ranking. Nada é vendido nem usado para propaganda.' }));
+    f.append(h('button', { class: 'btn ag-go', type: 'submit', text: su ? 'Criar conta' : 'Entrar' }));
+    if (!su) { const fl = h('button', { class: 'ag-link', type: 'button', text: 'Esqueci minha senha' }); fl.onclick = () => { GATE.email = f.email.value.trim(); GATE.tab = 'forgot'; renderGate(); }; f.append(fl); }
+  }
+  f.onsubmit = e => { e.preventDefault(); gateSubmit(f); };
+  body.append(steamBtn(), h('div', { class: 'ag-or' }, h('span', { text: 'ou com email' })), fg ? null : tabs, f);
+}
+function gateBusy(f, on) { GATE.busy = on; f.querySelectorAll('input,button').forEach(x => { x.disabled = on; }); const g = f.querySelector('.ag-go'); if (g) g.classList.toggle('busy', on); }
+async function gateSubmit(f) {
+  if (GATE.busy) return;
+  const err = $('agErr'); err.textContent = '';
+  const email = (f.email.value || '').trim().toLowerCase(); GATE.email = email;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { err.textContent = 'Digite um email válido.'; f.email.focus(); return; }
+  const sb = await sbLoad(); if (!sb) { err.textContent = 'Sem conexão com o servidor.'; return; }
+  const back = location.origin + location.pathname;
+  gateBusy(f, true);
+  try {
+    if (GATE.tab === 'forgot') {
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: back + '?reset=1' }); if (error) throw error;
+      GATE.sentKind = 'reset'; GATE.view = 'sent'; renderGate(); return;
+    }
+    const pw = f.pw.value;
+    if (GATE.tab === 'signup') {
+      const nm = (f.name.value || '').trim();
+      if (nm.length < 3 || nm.length > 20) throw new Error('O nome precisa ter de 3 a 20 caracteres.');
+      if (pw.length < 8 || !/[a-z]/i.test(pw) || !/\d/.test(pw)) throw new Error('weak password');
+      const { data, error } = await sb.auth.signUp({ email, password: pw, options: { data: { name: nm }, emailRedirectTo: back } });
+      if (error) throw error;
+      if (data && data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) throw new Error('already registered');
+      if (!data.session) { GATE.sentKind = 'signup'; GATE.view = 'sent'; renderGate(); return; }
+    } else {
+      if (!pw) throw new Error('Digite a senha.');
+      const { error } = await sb.auth.signInWithPassword({ email, password: pw }); if (error) throw error;
+    }
+    GATE.view = 'in'; GATE.passed = true; renderGate();       // a mudança de sessão faz o resto
+  } catch (e) {
+    const m = e.message || '';
+    err.textContent = /^(O nome|Digite)/.test(m) ? m : authMsg(e);
+    gateBusy(f, false);
+    const card = document.querySelector('.ag-card'); card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
+  }
+}
+function initGate() {
+  const st = document.createElement('style');
+  st.textContent = `
+  #authGate { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; overflow-y: auto; background: #04060c; transition: opacity .6s, transform .6s, filter .6s; }
+  #authGate.leave { opacity: 0; transform: scale(1.06); filter: blur(6px); pointer-events: none; }
+  #authGate .rl-bg { position: fixed; inset: -4%; background: #04060c center / cover no-repeat; animation: rlKen 38s ease-in-out infinite alternate; }
+  #authGate .rl-sweep { position: fixed; top: 0; bottom: 0; width: 30%; left: -40%; background: linear-gradient(100deg, transparent, rgba(120,200,255,.07), transparent); animation: rlSweep 9s ease-in-out infinite; pointer-events: none; }
+  #authGate .rl-shade { position: fixed; inset: 0; background: radial-gradient(ellipse at 50% 45%, rgba(3,5,12,.45), rgba(3,5,12,.88) 80%); }
+  .ag-wrap { position: relative; z-index: 2; width: min(420px, 92vw); padding: 28px 0; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  .ag-logo { font: italic 900 46px system-ui; line-height: .9; text-align: center; letter-spacing: .01em; text-shadow: 0 0 40px rgba(80,170,255,.45); animation: agDrop .8s cubic-bezier(.2,1.2,.4,1) both; }
+  .ag-logo span { display: block; font: 800 13px system-ui; letter-spacing: .9em; color: #6fd3ff; margin: 8px 0 0 .9em; }
+  @keyframes agDrop { from { opacity: 0; transform: translateY(-24px) scale(.96); } }
+  .ag-card { width: 100%; background: linear-gradient(160deg, rgba(14,22,40,.88), rgba(8,12,24,.86)); border: 1px solid rgba(111,211,255,.2); border-radius: 22px; padding: 22px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 30px 90px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.03) inset; position: relative; overflow: hidden; animation: agUp .7s .1s cubic-bezier(.2,.9,.3,1) both; }
+  .ag-card::before { content: ''; position: absolute; top: 0; left: -40%; width: 40%; height: 2px; background: linear-gradient(90deg, transparent, #6fd3ff, transparent); animation: agLine 3.5s ease-in-out infinite; }
+  @keyframes agLine { to { left: 100%; } }
+  @keyframes agUp { from { opacity: 0; transform: translateY(26px); } }
+  .ag-card.shake { animation: agShake .4s; } @keyframes agShake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+  #agBody > * { animation: agFade .35s both; } @keyframes agFade { from { opacity: 0; transform: translateY(8px); } }
+  .ag-steam { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 57px; color: #fff; font: 800 15px system-ui; padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.14); background: linear-gradient(180deg, #1b2838, #10171f); cursor: pointer; transition: transform .15s, box-shadow .25s, border-color .25s; position: relative; }
+  .ag-steam img { display: block; height: 35px; width: auto; } .ag-steam span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .ag-steam:hover { transform: translateY(-2px); border-color: #66c0f4; box-shadow: 0 10px 30px rgba(102,192,244,.25); }
+  .ag-steam.go { filter: brightness(1.2); }
+  .ag-or { display: flex; align-items: center; gap: 12px; margin: 16px 0 14px; font: 800 11px system-ui; letter-spacing: .2em; color: rgba(255,255,255,.45); text-transform: uppercase; }
+  .ag-or::before, .ag-or::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,.12); }
+  .ag-tabs { position: relative; display: grid; grid-template-columns: 1fr 1fr; background: rgba(255,255,255,.05); border-radius: 12px; padding: 4px; margin-bottom: 14px; }
+  .ag-tabs button { position: relative; z-index: 1; border: 0; background: none; color: rgba(255,255,255,.6); font: 800 14px system-ui; padding: 9px; cursor: pointer; transition: color .2s; }
+  .ag-tabs button.on { color: #fff; }
+  .ag-ind { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); border-radius: 9px; background: linear-gradient(180deg, rgba(45,125,255,.7), rgba(26,86,214,.6)); box-shadow: 0 4px 16px rgba(31,111,255,.35); transition: transform .3s cubic-bezier(.2,.9,.3,1); }
+  .ag-form { display: flex; flex-direction: column; gap: 10px; }
+  .ag-f { display: flex; flex-direction: column; gap: 5px; position: relative; text-align: left; }
+  .ag-f span { font: 800 11px system-ui; letter-spacing: .12em; text-transform: uppercase; color: rgba(255,255,255,.55); }
+  #authGate input { text-transform: none; letter-spacing: normal; text-align: left; font-weight: 600; font-size: 15px; padding: 12px 14px; border-radius: 11px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); transition: border-color .2s, box-shadow .2s, background .2s; width: 100%; }
+  #authGate input:focus { border-color: #6fd3ff; box-shadow: 0 0 0 3px rgba(111,211,255,.15); background: rgba(255,255,255,.09); }
+  .ag-eye { position: absolute; right: 8px; bottom: 7px; width: 32px; height: 30px; border: 0; border-radius: 8px; background: none; cursor: pointer; opacity: .5; font-size: 15px; } .ag-eye.on, .ag-eye:hover { opacity: 1; }
+  .ag-err { min-height: 0; color: #ff8fa6; font-size: 13px; font-weight: 600; text-align: left; } .ag-err:empty { display: none; }
+  .ag-terms { font-size: 11px; opacity: .5; line-height: 1.45; text-align: left; }
+  #authGate .btn { margin: 0; border-radius: 11px; } #authGate .btn:not(.ghost) { background: linear-gradient(180deg, #2d7dff, #1a56d6); box-shadow: 0 8px 24px rgba(31,111,255,.35); }
+  #authGate .btn.ghost { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12); }
+  .ag-go.busy { color: transparent; position: relative; } .ag-go.busy::after { content: ''; position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; animation: agSpin .7s linear infinite; }
+  @keyframes agSpin { to { transform: rotate(360deg); } }
+  .ag-link { background: none; border: 0; color: #6fd3ff; font: 700 13px system-ui; cursor: pointer; padding: 4px; align-self: center; } .ag-link:hover { text-decoration: underline; }
+  .ag-h { font: italic 900 22px system-ui; margin-bottom: 6px; } .ag-p { font-size: 14px; opacity: .75; line-height: 1.5; margin-bottom: 12px; }
+  .ag-col { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+  .ag-wait { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 26px 0; font-weight: 700; opacity: .85; }
+  .ag-mail { font-size: 44px; text-align: center; animation: agBob 2s ease-in-out infinite; } @keyframes agBob { 50% { transform: translateY(-6px); } }
+  #agBody[data-v=sent], #agBody[data-v=error] { text-align: center; }
+  .ag-legal { font-size: 11px; line-height: 1.5; color: rgba(255,255,255,.4); text-align: center; animation: agFade .6s .4s both; }
+  @media (max-width: 480px) { .ag-logo { font-size: 36px; } .ag-card { padding: 18px; } }`;
+  document.head.appendChild(st);
+  const lobbyBg = document.querySelector('#lobby .rl-bg');
+  const g = h('div', { id: 'authGate', class: 'hidden', role: 'dialog', 'aria-label': 'Entrar no Ping Pong Online' },
+    lobbyBg ? lobbyBg.cloneNode(true) : h('div', { class: 'rl-bg' }), h('div', { class: 'rl-sweep' }), h('div', { class: 'rl-shade' }),
+    h('div', { class: 'ag-wrap' },
+      h('div', { class: 'ag-logo' }, 'PING PONG', h('span', { text: 'ONLINE' })),
+      h('div', { class: 'ag-card' }, h('div', { id: 'agBody' })),
+      h('div', { class: 'ag-legal', text: 'O login da Steam abre a página oficial da Steam: nunca pedimos sua senha da Steam. Steam e o logotipo Steam são marcas da Valve Corporation. Ping Pong Online não é afiliado à Valve.' })));
+  document.body.append(g);
+  // o fundo do menu carrega depois: copia a imagem quando chegar
+  const sync = () => { const a = document.querySelector('#lobby .rl-bg'), b = g.querySelector('.rl-bg'); if (a && b && a.style.backgroundImage) b.style.backgroundImage = a.style.backgroundImage; else setTimeout(sync, 300); };
+  sync();
+  window.__gateSync = gateSync;
+  gateSync();
+}
+
+/* =====================================================================
+   EFEITOS DE INTERFACE: hover e clique em todos os botões
+   Brilho que passa, leve subida no hover, "onda" de luz no clique e sons baixinhos.
+   ===================================================================== */
+const FX_SEL = 'button, a.btn, .bs, .rl-prof, .pk-card';
+function initUiFx() {
+  const st = document.createElement('style');
+  st.textContent = `
+  .fxw { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; z-index: 0; }
+  .rl-nav .fxw { transform: skewX(-14deg); border-radius: 0; }
+  .fxr { position: absolute; border-radius: 50%; transform: translate(-50%, -50%) scale(0); background: radial-gradient(circle, rgba(255,255,255,.55) 0%, rgba(160,220,255,.25) 40%, transparent 70%); animation: fxRip .6s cubic-bezier(.2,.8,.3,1) forwards; }
+  @keyframes fxRip { to { transform: translate(-50%, -50%) scale(1); opacity: 0; } }
+  button.btn, a.btn, .rl-ib, .seg button, .pk-arrow, .ag-steam, .rl-prof { position: relative; isolation: isolate; }
+  button.btn, a.btn, .ag-steam { overflow: hidden; }
+  button.btn::after, a.btn::after, .ag-steam::after { content: ''; position: absolute; top: 0; bottom: 0; left: -60%; width: 45%; background: linear-gradient(105deg, transparent, rgba(255,255,255,.28), transparent); transform: skewX(-18deg); pointer-events: none; transition: none; }
+  button.btn:hover:not(:disabled)::after, a.btn:hover::after, .ag-steam:hover::after { left: 130%; transition: left .6s ease; }
+  button.btn, a.btn, .seg button, .pk-arrow, .bs, .rl-ib, .cf-save, .ag-tabs button { transition: transform .16s cubic-bezier(.2,.9,.3,1.4), box-shadow .25s, filter .2s, background .2s, border-color .2s; }
+  button.btn:hover:not(:disabled), a.btn:hover { transform: translateY(-2px); filter: brightness(1.12); }
+  button.btn:active:not(:disabled), a.btn:active, .seg button:active, .pk-arrow:active, .rl-ib:active, .cf-save:active, .ag-steam:active { transform: scale(.96); transition-duration: .06s; }
+  .seg button:hover { transform: translateY(-2px); border-color: rgba(111,211,255,.5); }
+  .pk-arrow:hover { transform: scale(1.12); box-shadow: 0 0 18px rgba(111,211,255,.45); background: rgba(31,111,255,.45); }
+  .bs { transition: transform .18s cubic-bezier(.2,.9,.3,1.4), box-shadow .2s; } .bs:hover { transform: translateY(-3px) scale(1.12); box-shadow: 0 6px 18px rgba(111,211,255,.35); }
+  .rl-ib:hover { box-shadow: 0 0 22px rgba(111,211,255,.3); }
+  .rl-nav button::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 30%; transform: skewX(-14deg) translateX(-120%); background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent); opacity: 0; pointer-events: none; }
+  .rl-nav button:hover::after { animation: fxNavSweep .7s ease forwards; }
+  @keyframes fxNavSweep { 0% { opacity: 1; transform: skewX(-14deg) translateX(-120%); } 100% { opacity: 0; transform: skewX(-14deg) translateX(380%); } }
+  .rl-nav button.fx-hit::before { animation: fxNavHit .4s ease; } @keyframes fxNavHit { 0% { filter: brightness(1.9); } 100% { filter: none; } }
+  .rl-nav button.fx-hit span { animation: fxNavTxt .35s cubic-bezier(.2,1.4,.4,1); } @keyframes fxNavTxt { 40% { letter-spacing: .1em; } }
+  .rl-panel { transition: transform .25s, border-color .25s, box-shadow .25s; }
+  .rl-page.in .rl-panel { animation: rlIn .5s cubic-bezier(.2,.9,.3,1) both; }
+  .rl-page.in .rl-panel:nth-child(2) { animation-delay: .06s; } .rl-page.in .rl-panel:nth-child(3) { animation-delay: .12s; }
+  .rl-modes .rl-panel:nth-child(2) { animation-delay: .06s; } .rl-modes .rl-panel:nth-child(3) { animation-delay: .12s; }
+  @media (prefers-reduced-motion: reduce) { .fxr, .rl-nav button::after, button.btn::after { display: none; } }`;
+  document.head.appendChild(st);
+  let lastHover = null;
+  document.addEventListener('pointerover', e => {
+    const b = e.target.closest(FX_SEL); if (!b || b === lastHover || b.disabled) return;
+    lastHover = b; if (e.pointerType === 'mouse') uiTick('hover');
+  });
+  document.addEventListener('pointerout', e => { if (lastHover && !lastHover.contains(e.relatedTarget)) lastHover = null; });
+  document.addEventListener('pointerdown', e => {
+    const b = e.target.closest(FX_SEL); if (!b || b.disabled) return;
+    ensureAudio(); uiTick('click');
+    if (b.matches('.bs, .pk-card')) return;
+    let w = b.querySelector(':scope > .fxw'); if (!w) { w = document.createElement('div'); w.className = 'fxw'; b.prepend(w); }
+    const r = b.getBoundingClientRect(), d = Math.max(r.width, r.height) * 2.4;
+    const s = document.createElement('div'); s.className = 'fxr';
+    s.style.width = s.style.height = d + 'px'; s.style.left = (e.clientX - r.left) + 'px'; s.style.top = (e.clientY - r.top) + 'px';
+    w.append(s); setTimeout(() => s.remove(), 650);
+    if (b.closest('.rl-nav')) { b.classList.remove('fx-hit'); void b.offsetWidth; b.classList.add('fx-hit'); }
+  }, true);
+}
 
 /* =====================================================================
    RENDER
@@ -5214,12 +5495,15 @@ async function checkVipLink() {
 }
 checkVipLink();
 const roomParam = new URLSearchParams(location.search).get('sala');
-if (roomParam) { $('inCode').value = roomParam.toUpperCase(); joinRoom(roomParam); }
+if (roomParam) { $('inCode').value = roomParam.toUpperCase(); }
 
 initFeelUI();
 initSpecUI();
 initFriendsUI();
 initMenuShell();
+initGate();
+initUiFx();
 const verParam = new URLSearchParams(location.search).get('ver');
-if (verParam && !roomParam) { $('inCode').value = verParam.toUpperCase(); joinSpectate(verParam); }
-window.__pp = { UI, showPage, menuMusic, updateMenuMusic, FR, loadFriends, openFriends, socialPoll, showInvite, SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
+if (roomParam) gateAfter(() => { if (S.phase === 'lobby') joinRoom(roomParam); });
+if (verParam && !roomParam) { $('inCode').value = verParam.toUpperCase(); gateAfter(() => { if (S.phase === 'lobby') joinSpectate(verParam); }); }
+window.__pp = { GATE, gateSync, UI, showPage, menuMusic, updateMenuMusic, FR, loadFriends, openFriends, socialPoll, showInvite, SPV, specs, joinSpectate, onSpecMsg, specInit, swingPeakUp, applyHit, prog, levelOf, addXp, dailyMissions, progEvent, hitQuality, startTutorial, TUT, landMark, botLv, BOT_LV, get hitStop() { return hitStop; }, get botStyle() { return botStyle; }, asmr, VOL, applyBallSkin, BALL_SKINS, ballSkinById, lock, updateLockUI, swipeVel, pointer, RP, END, startReplay, celebrate, FWl: launchRocket, awardPoint, acct, queueMatched, division, overRanked, refreshProfile, renderAccount, thumbs, RACKETS, setPaddle, get myRacket() { return myRacket; }, get oppRacket() { return oppRacket; }, pickMove, S, me, bot, opp, camera, cam, get myPaddleMesh() { return myPaddleMesh; }, get oppPaddleMesh() { return oppPaddleMesh; }, netHit, net, buildArena, ARENAS, A, crowd, crowdEvent, pyroBurst, fireworks, scene, perf, sendChat, qc, crowdReact, makeShot, simFlight, stepBall, startGame, onMsg, THREE, applyQuality, audio: () => ({ ctx: !!actx, kinds: Object.keys(IMP), samples: Object.fromEntries(Object.entries(SAMPLES).map(([k, v]) => [k, v.length])), playImpact, ensureAudio }) };
