@@ -50,10 +50,10 @@ Todos os botões e cartões reagem ao hover e ao clique (subida leve, brilho, "o
 ## Menu principal (visual estilo FUT)
 
 - **Barra do clube** em cima: escudo com o avatar, nome, divisão/nível, elo, XP total, estrelas das missões do dia, tempo até as missões novas com barra de progresso, nível, 👥, 🏆 e ⚙️.
-- **Abas:** Início, Jogar, Garagem, Amigos, Ranking e Ajustes (**Q**/**E** trocam de aba).
+- **Abas:** Início, Jogar, Coleção, Amigos, Ranking e Ajustes (**Q**/**E** trocam de aba).
 - **Título grande** em itálico condensado, subtítulo e etiquetas (missões e tempo).
 - **Cartões grandes** com ilustração, faixa laranja, nome embaixo e rodapé com 3 números; o cartão escolhido sobe e ganha a barra laranja. Bloqueado = cinza com cadeado no canto.
-- **Telas:** Início (Jogar, Missões, Perfil, Amigos) · Jogar (Com amigo, Ranqueada, Treino, Tutorial + cenário e formato) · Com amigo (Criar sala, Entrar com código, Assistir) · Ranqueada (Procurar partida, Ranking) · Treino (um cartão por nível da CPU: clicou, começa) · Garagem (raquetes em cartões com velocidade/efeito/controle, bolinhas e sigla) · Missões · Perfil.
+- **Telas:** Início (Jogar, Missões, Perfil, Amigos) · Jogar (Com amigo, Ranqueada, Treino, Tutorial + cenário e formato) · Com amigo (Criar sala, Entrar com código, Assistir) · Ranqueada (Procurar partida, Ranking) · Treino (um cartão por nível da CPU: clicou, começa) · Coleção (raquetes em cartões com velocidade/efeito/controle, bolinhas e sigla) · Missões · Perfil.
 - Ajustes, Amigos, Ranking e Painel admin abrem no mesmo visual, em tela cheia (**Esc** fecha).
 - Teclado: setas movem, **Enter** escolhe, **Esc** volta.
 - Fonte: Barlow Condensed (licença OFL), carregada do jsDelivr.
@@ -61,7 +61,7 @@ Todos os botões e cartões reagem ao hover e ao clique (subida leve, brilho, "o
 - **Música do menu:** `assets/menu-music.mp3`, em loop e baixa, só depois do login; mais baixa na tela de resultado e some na partida (a menos que "música durante a partida" esteja ligada). Segue o volume de **Música** e o 🔇. Os arquivos vêm do jsDelivr fixados no commit (`ASSET_SHA` no `game.js`).
 
 ## Skins de raquete (25)
-Cada raquete (Clássica, Víbora, Foguete, Muralha, Raiz e Dragão Dourado) pode usar qualquer uma das 25 skins; a skin muda só o visual (frente e verso da borracha), não a velocidade, o efeito nem o controle. Na **Garagem**, clique numa raquete para equipá-la e abrir as skins dela; "Original" volta ao visual padrão. A escolha fica salva por raquete (`pp_rskins`) e vai para o adversário e para quem assiste (campo `sk` no `hello` e no `sinit`). A sigla aparece pequena embaixo da arte.
+Cada raquete (Clássica, Víbora, Foguete, Muralha, Raiz e Dragão Dourado) pode usar qualquer uma das 25 skins; a skin muda só o visual (frente e verso da borracha), não a velocidade, o efeito nem o controle. Na **Coleção**, clique numa raquete para equipá-la e abrir as skins dela; "Original" volta ao visual padrão. A escolha fica salva por raquete (`pp_rskins`) e vai para o adversário e para quem assiste (campo `sk` no `hello` e no `sinit`). A sigla aparece pequena embaixo da arte.
 
 Skins: Caçador Galáctico, Camisa 10, Artilheiro, Viking do Gol, Paredão, Kraken Abissal, Fênix, Lobo Lunar, Trovão, Neve Eterna, Biohazard, Neon Retrô, Pixel Arcade, Steampunk, Astronauta, Esports Pro, Tropical, Geométrica, Camuflagem, Chamas Azuis, Doces & Sprinkles, Gato Ninja, Robô V4, Dourada Luxo e Arco-íris Holográfica (raridades Comum, Rara, Épica e Lendária, só de enfeite por enquanto; todas liberadas).
 

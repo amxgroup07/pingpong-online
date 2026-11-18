@@ -5054,7 +5054,7 @@ function futPage(id) {
     ] };
     case 'train': return { title: 'Treino', crumb: 'Jogar', sub: 'Escolha o nível da CPU. Quanto mais difícil, mais XP por partida.', chips, tiles: Object.entries(BOT_LV).map(([k, v], i) => (
       { title: v.name, art: futCpuArt(k, i), foot: [['XP', `×${v.xp}`], ['Reflexo', '▮'.repeat(i + 1) + '▯'.repeat(3 - i)], ['Erros', ['Muitos', 'Alguns', 'Poucos', 'Raros'][i]]], sel: pickState.diff === k, go: () => { pickState.diff = k; store.set('pp_diff', k); renderPick(); $('btnSolo').click(); } })), opts: true };
-    case 'garage': return { title: 'Garagem', sub: 'Sua raquete, a bolinha e a sigla gravada na borracha.', chips, tiles: RACKETS.filter(isListed).map(r => {
+    case 'garage': return { title: 'Coleção', sub: 'Suas raquetes e skins, a bolinha e a sigla gravada na borracha.', chips, tiles: RACKETS.filter(isListed).map(r => {
       const lk = !isUnlocked(r), i = RACKETS.indexOf(r);
       const sk = skinById(mySkinFor(r));
       return { title: r.name, art: futRacketArt(r), foot: [['Velocidade', r.speed], ['Efeito', r.spin], ['Controle', r.ctrl]], small: true, sel: myRacket.id === r.id, badge: myRacket.id === r.id ? 'EQUIPADA' : '', skin: sk ? sk.name : 'Original',
@@ -5063,7 +5063,7 @@ function futPage(id) {
     case 'skins': {
       const r = racketById(UI.skinRk || myRacket.id), cur = mySkinFor(r);
       const pick = id => { setRacketSkin(r, id); skinReady(id).then(() => { if (myRacket.id === r.id) setPaddle('me', r); makeThumbs([[r, id]]); renderFut(); }); renderFut(); toast(id ? `Skin ${skinById(id).name} na ${r.name}` : `${r.name} com o visual original`); };
-      return { title: r.name, crumb: 'Garagem', sub: 'Escolha a skin desta raquete. Muda só o visual: velocidade, efeito e controle continuam os mesmos. Seu adversário vê a skin.', chips: [['star', `${RSKINS.length} SKINS`], ['paint', cur ? skinById(cur).name : 'Original']], tiles: [
+      return { title: r.name, crumb: 'Coleção', sub: 'Escolha a skin desta raquete. Muda só o visual: velocidade, efeito e controle continuam os mesmos. Seu adversário vê a skin.', chips: [['star', `${RSKINS.length} SKINS`], ['paint', cur ? skinById(cur).name : 'Original']], tiles: [
         { title: 'Original', art: futRacketArt(r, true), foot: [['Raridade', 'Padrão'], ['Nº', '00'], ['Status', cur ? 'Usar' : 'Em uso']], small: true, sel: !cur, badge: !cur ? 'EM USO' : '', go: () => pick('') },
         ...RSKINS.map(s => ({ title: s.name, art: futSkinArt(s), foot: [['Raridade', s.rar], ['Nº', s.n], ['Status', cur === s.id ? 'Em uso' : 'Usar']], small: true, sel: cur === s.id, rar: s.rar, badge: cur === s.id ? 'EM USO' : '', go: () => pick(s.id) })),
       ] };
@@ -5098,7 +5098,7 @@ function futMissionArt(m) {
   return uniq(`<svg class="fu-svg" viewBox="0 0 300 240" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><radialGradient id="gl"><stop offset="0" stop-color="#ff6b1a" stop-opacity=".45"/><stop offset="1" stop-color="#ff6b1a" stop-opacity="0"/></radialGradient></defs><circle cx="150" cy="112" r="80" fill="url(#gl)"/><circle cx="150" cy="112" r="46" fill="none" stroke="rgba(255,255,255,.15)" stroke-width="12"/><circle cx="150" cy="112" r="46" fill="none" stroke="${m.paid ? '#22c55e' : '#ff6b1a'}" stroke-width="12" stroke-linecap="round" stroke-dasharray="${C * pct} ${C}" transform="rotate(-90 150 112)"/><text x="150" y="124" text-anchor="middle" font-size="34" font-weight="900" fill="#fff" font-family="Barlow Condensed,system-ui">${m.paid ? '✔' : `${Math.min(m.n, m.need)}/${m.need}`}</text></svg>`);
 }
 // ---------- navegação ----------
-const TABS = [['home', 'Início'], ['play', 'Jogar'], ['garage', 'Garagem'], ['friends', 'Amigos'], ['ranking', 'Ranking'], ['settings', 'Ajustes']];
+const TABS = [['home', 'Início'], ['play', 'Jogar'], ['garage', 'Coleção'], ['friends', 'Amigos'], ['ranking', 'Ranking'], ['settings', 'Ajustes']];
 const TAB_OF = { friend: 'play', ranked: 'play', train: 'play', missions: 'home', profile: 'home', skins: 'garage' };
 function futTab(id) {
   if (id === 'friends') return openFriends();
